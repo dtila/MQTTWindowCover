@@ -8,7 +8,7 @@
 #include <aJSON.h> // Replace avm/pgmspace.h with pgmspace.h there and set #define PRINT_BUFFER_LEN 4096 ################# IMPORTANT
 #include <assert.h>
 
-#if PRINT_BUFFER_LEN < 2048
+#if PRINT_BUFFER_LEN < 4096
 #  error aJson print buffer length PRINT_BUFFER_LEN must be increased to at least 4096
 #endif
 
@@ -188,14 +188,18 @@ protected:
     char _wildcard;
 };
 
-LightServiceClass LightService;
+LightHandler *lightHandlers[MAX_LIGHT_HANDLERS] = {}; // interfaces exposed to the outside world
 
-LightHandler *lightHandlers[MAX_LIGHT_HANDLERS]; // interfaces exposed to the outside world
+LightServiceClass::LightServiceClass(const char * friendlyName) : _friendlyName(friendlyName) { }
 
 bool LightServiceClass::setLightHandler(int index, LightHandler *handler) {
   if (index >= currentNumLights || index < 0) return false;
   lightHandlers[index] = handler;
   return true;
+}
+
+const char* LightServiceClass::getFriendlyName() const {
+  return _friendlyName;
 }
 
 bool LightServiceClass::setLightsAvailable(int lights) {
@@ -571,7 +575,7 @@ void groupsIdFn(WcFnRequestHandler *handler, String requestUri, HTTPMethod metho
         aJson.addStringToObject(object, "name", "0");
         aJsonObject *lightsArray = aJson.createArray();
         aJson.addItemToObject(object, "lights", lightsArray);
-        for (int i = 0; i < MAX_LIGHT_HANDLERS; i++) {
+        for (int i = 0; i < LightService.getLightsAvailable(); i++) {
           if (!lightHandlers[i]) {
             continue;
           }
@@ -666,10 +670,12 @@ void lightsIdFn(WcFnRequestHandler *whandler, String requestUri, HTTPMethod meth
 }
 
 void lightsIdStateFn(WcFnRequestHandler *whandler, String requestUri, HTTPMethod method) {
-  int numberOfTheLight = atoi(whandler->getWildCard(1).c_str()) - 1;
+  int numberOfTheLight = max(0, atoi(whandler->getWildCard(1).c_str()) - 1);
   LightHandler *handler = LightService.getLightHandler(numberOfTheLight);
   if (!handler) {
-    sendError(3, requestUri, "Requested light not available");
+    char buff[100] = {};
+    sprintf(buff, "Requested light not available for number %d", numberOfTheLight);
+    sendError(3, requestUri, buff);
     return;
   }
 
@@ -1002,11 +1008,11 @@ bool parseHueLightInfo(HueLightInfo currentInfo, aJsonObject *parsedRoot, HueLig
 
 void addLightJson(aJsonObject* root, int numberOfTheLight, LightHandler *lightHandler) {
   if (!lightHandler) return;
-  String lightName = "" + (String) (numberOfTheLight + 1);
+  String lightName = lightHandler->getFriendlyName(numberOfTheLight);
   aJsonObject *light;
   aJson.addItemToObject(root, lightName.c_str(), light = aJson.createObject());
   aJson.addStringToObject(light, "type", "Extended color light"); // type of lamp (all "Extended colour light" for now)
-  aJson.addStringToObject(light, "name",  ("Hue LightStrips " + (String) (numberOfTheLight + 1)).c_str()); // // the name as set through the web UI or app
+  aJson.addStringToObject(light, "name",  lightName.c_str()); // // the name as set through the web UI or app
   aJson.addStringToObject(light, "uniqueid",  ("AA:BB:CC:DD:EE:FF:00:11-" + (String) (numberOfTheLight + 1)).c_str());
   aJson.addStringToObject(light, "modelid", "LST001"); // the model number
   aJsonObject *state;

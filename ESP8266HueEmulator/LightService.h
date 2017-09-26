@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 enum HueColorType {
   TYPE_HUE_SAT, TYPE_CT, TYPE_XY
 };
@@ -10,6 +12,7 @@ enum HueEffect {
   EFFECT_NONE, EFFECT_COLORLOOP
 };
 
+
 struct HueLightInfo {
   bool on = false;
   int brightness = 0;
@@ -21,6 +24,7 @@ struct HueLightInfo {
 };
 
 class aJsonObject;
+class String;
 bool parseHueLightInfo(HueLightInfo currentInfo, aJsonObject *parsedRoot, HueLightInfo *newInfo);
 
 class LightHandler {
@@ -31,15 +35,21 @@ class LightHandler {
       HueLightInfo info;
       return info;
     }
+    virtual String getFriendlyName(int lightNumber) const {
+      return "Hue LightStrips " + ((String) (lightNumber + 1));
+    }
 };
 
 // Max number of exposed lights is directly related to aJSON PRINT_BUFFER_LEN, 14 for 4096
-#define MAX_LIGHT_HANDLERS 6
+#define MAX_LIGHT_HANDLERS 2
 #define COLOR_SATURATION 255.0f
 
 class ESP8266WebServer;
 class LightServiceClass {
+    const char* _friendlyName;
+
     public:
+      LightServiceClass(const char * friendlyName);
       LightHandler *getLightHandler(int numberOfTheLight);
       bool setLightsAvailable(int numLights);
       int getLightsAvailable();
@@ -47,6 +57,7 @@ class LightServiceClass {
       void begin();
       void begin(ESP8266WebServer *svr);
       void update();
+      const char* getFriendlyName() const;
     private:
       int currentNumLights = MAX_LIGHT_HANDLERS;
 };
