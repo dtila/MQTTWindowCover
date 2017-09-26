@@ -1,209 +1,372 @@
-/**
- * Emulate Philips Hue Bridge ; so far the Hue app finds the emulated Bridge and gets its config
- * and switch NeoPixels with it
- **/
 
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
+#include <PubSubClient.h>
+#include <EEPROM.h>
+
 #include <TimeLib.h>
 #include <NtpClientLib.h>
-#include <NeoPixelBus.h>
-#include <NeoPixelAnimator.h> // instead of NeoPixelAnimator branch
 #include "LightService.h"
+#include "Blink.h"
 
-// these are only used in LightHandler.cpp, but it seems that the IDE only scans the .ino and real libraries for dependencies
 #include <ESP8266WebServer.h>
 #include "SSDP.h"
 #include <aJSON.h> // Replace avm/pgmspace.h with pgmspace.h there and set #define PRINT_BUFFER_LEN 4096 ################# IMPORTANT
 
-#include "/secrets.h" // Delete this line and populate the following
-//const char* ssid = "********";
-//const char* password = "********";
+#include "secrets.h"
 
-RgbColor red = RgbColor(COLOR_SATURATION, 0, 0);
-RgbColor green = RgbColor(0, COLOR_SATURATION, 0);
-RgbColor white = RgbColor(COLOR_SATURATION);
-RgbColor black = RgbColor(0);
+// Able to respond to: ON = 0 position, OFF = position 100
 
-// Settings for the NeoPixels
-#define NUM_PIXELS_PER_LIGHT 10 // How many physical LEDs per emulated bulb
+const int POWER_RELAY = 1;
+const int GOING_UP_RELAY = 2;
+const int LED = 13;
+const int COVER_OPEN = 0;
+const int COVER_CLOSE = 100;
+const int FULL_TIME_MS = 5000;
+const int MQTT_SEND_STATUS_MS = 3000;
+const char * friendly_name = "Bedroom window cover";
+const int EEPROM_POSITION_ADDR = 0;
+const int MAX_HUE = 254;
 
-#define pixelCount 30
-#define pixelPin 2 // Strip is attached to GPIO2 on ESP-01
-NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart800KbpsMethod> strip(MAX_LIGHT_HANDLERS * NUM_PIXELS_PER_LIGHT, pixelPin);
-NeoPixelAnimator animator(MAX_LIGHT_HANDLERS * NUM_PIXELS_PER_LIGHT, NEO_MILLISECONDS); // NeoPixel animation management object
+class CoverHandler;
 
-HsbColor getHsb(int hue, int sat, int bri) {
-  float H, S, B;
-  H = ((float)hue) / 182.04 / 360.0;
-  S = ((float)sat) / COLOR_SATURATION;
-  B = ((float)bri) / COLOR_SATURATION;
-  return HsbColor(H, S, B);
-}
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+LightServiceClass LightService(friendly_name);
+CoverHandler *coverHandler = NULL;
+char buff[0x100];
+bool debugging = 0;
+TimedBlink activity(LED, 200, 200);
 
-class PixelHandler : public LightHandler {
-  private:
-    HueLightInfo _info;
-    int16_t colorloopIndex = -1;
+void debug(const char * text);
+
+
+class CoverHandler : public LightHandler {
+    int _startingPosition, _position, _relayState;
+    HueLightInfo _currentInfo;
+    unsigned long _operationStartMs, _operatingMs, _lastMqttSendMs;
+    
+    void setRelay(int relayState) {
+      Serial.write(0xA0);
+      Serial.write(0x04);
+      Serial.write(relayState);
+      Serial.write(0xA1);
+      Serial.write('\n');
+      Serial.flush();
+
+      _relayState = relayState;
+      sprintf(buff, "Setting relay: %d", relayState);
+      debug(buff);
+    }
+
+    int getPositionLenght(unsigned ms) {
+      return (COVER_CLOSE * ms) / FULL_TIME_MS;
+    }
+
   public:
+    CoverHandler() : _startingPosition(), _relayState(), _operationStartMs(), _operatingMs(), _lastMqttSendMs() {
+      _position = EEPROM.read(EEPROM_POSITION_ADDR);
+      if (_position < COVER_OPEN || _position > COVER_CLOSE) {
+        calibrate();
+      }
+    }
+    
     void handleQuery(int lightNumber, HueLightInfo newInfo, aJsonObject* raw) {
-      // define the effect to apply, in this case linear blend
-      HslColor newColor = HslColor(getHsb(newInfo.hue, newInfo.saturation, newInfo.brightness));
-      HslColor originalColor = strip.GetPixelColor(lightNumber);
-      _info = newInfo;
-
-      // cancel colorloop if one is running
-      if (colorloopIndex >= 0) {
-        animator.StopAnimation(colorloopIndex);
-        colorloopIndex = -1;
+      int newPosition = (float)newInfo.brightness / (float)MAX_HUE * COVER_CLOSE;
+      if (_currentInfo.on && !newInfo.on) {
+        newPosition = COVER_CLOSE;
       }
-      if (newInfo.on) {
-        if (_info.effect == EFFECT_COLORLOOP) {
-          //color loop at max brightness/saturation on a 60 second cycle
-          const int SIXTY_SECONDS = 60000;
-          animator.StartAnimation(lightNumber, SIXTY_SECONDS, [ = ](const AnimationParam & param) {
-            // save off animation index
-            colorloopIndex = param.index;
 
-            // progress will start at 0.0 and end at 1.0
-            float currentHue = newColor.H + param.progress;
-            if (currentHue > 1) currentHue -= 1;
-            HslColor updatedColor = HslColor(currentHue, newColor.S, newColor.L);
-            RgbColor currentColor = updatedColor;
+      _currentInfo = newInfo;
+      
+      setPosition(newPosition);
+      sprintf(buff, "Received: bri: %d, hue: %d, on: %d, pos: %d", newInfo.brightness, newInfo.hue, newInfo.on, newPosition);
+      debug(buff);
+    }
 
-            for(int i=lightNumber * NUM_PIXELS_PER_LIGHT; i < (lightNumber * NUM_PIXELS_PER_LIGHT) + NUM_PIXELS_PER_LIGHT; i++) {
-              strip.SetPixelColor(i, updatedColor);
-            }
+    HueLightInfo getInfo(int lightNumber) {
+      HueLightInfo info = {};
+      info.brightness = (int) ((float)_position / COVER_CLOSE * (float)MAX_HUE);
+      info.on = _position > (COVER_CLOSE * 0.95);
 
-            // loop the animation until canceled
-            if (param.state == AnimationState_Completed) {
-              // done, time to restart this position tracking animation/timer
-              animator.RestartAnimation(param.index);
-            }
-          });
-          return;
+      sprintf(buff, "getInfo(%d) was called: pos: %d, brightness: %d, on: %d", lightNumber, _position, info.brightness, info.on);
+      debug(buff);
+      return info; 
+    }
+
+    byte getPosition() const {
+      return _position;
+    }
+
+    void calibrate() {
+      debug("Calibrating the cover ...");
+
+      setRelay(POWER_RELAY | GOING_UP_RELAY);
+      _operationStartMs = millis();
+      _operatingMs = FULL_TIME_MS;
+      activity.blink(_operatingMs);
+
+      _startingPosition = COVER_CLOSE;
+      _position = COVER_OPEN;
+      EEPROM.write(EEPROM_POSITION_ADDR, _position);
+      EEPROM.write(EEPROM_POSITION_ADDR + 1, 0); // this is to reset that we are not calibrating anymore
+      EEPROM.commit();
+    }
+
+    void setPosition(int position) {
+      if (position == _position)
+        return;
+    
+      sprintf(buff, "Setting position: %d", position);
+      debug(buff);
+        
+      int relayState = POWER_RELAY;
+      int remaining = position - _position; // 10 - 50
+      
+      if (remaining < 0) {
+        relayState = relayState | GOING_UP_RELAY;
+      }
+
+      _operationStartMs = millis();
+      setRelay(relayState);
+      _operatingMs = (FULL_TIME_MS * abs(remaining)) / COVER_CLOSE;
+      
+      if (position == COVER_OPEN || position == COVER_CLOSE) {
+        _operatingMs = _operatingMs * 1.15; // we take a margin as a 15% percent when we are in the 
+        sprintf(buff, "Auto-Calibration to %d with duration %d ms because the requested position is in margin", position, _operatingMs);
+        debug(buff);
+      }
+      
+      activity.blink(_operatingMs);
+
+      _startingPosition = _position;
+      EEPROM.write(EEPROM_POSITION_ADDR + 1, 0); // this is to reset that we are not calibrating anymore
+      EEPROM.commit();
+    }
+
+    bool isOperating() {
+      return _operationStartMs > 0;
+    }
+
+    bool isGoingUp() {
+      return _relayState & GOING_UP_RELAY;
+    }
+
+    void loop() {
+      unsigned now = millis();
+
+      if (isOperating()) {
+        unsigned spent = now - _operationStartMs;
+        int lenght = getPositionLenght(spent);
+        if (isGoingUp())
+          lenght *= -1;
+        _position = min(max(_startingPosition + lenght, COVER_OPEN), COVER_CLOSE);
+  
+        if (spent >= _operatingMs) { // the operation needs to stop
+          stop();
+          EEPROM.write(EEPROM_POSITION_ADDR + 1, 1); // we say that we are calibrated
+          debug("The cover operation has stopped");
         }
-        AnimUpdateCallback animUpdate = [ = ](const AnimationParam & param)
-        {
-          // progress will start at 0.0 and end at 1.0
-          HslColor updatedColor = HslColor::LinearBlend<NeoHueBlendShortestDistance>(originalColor, newColor, param.progress);
 
-          for(int i=lightNumber * NUM_PIXELS_PER_LIGHT; i < (lightNumber * NUM_PIXELS_PER_LIGHT) + NUM_PIXELS_PER_LIGHT; i++) {
-            strip.SetPixelColor(i, updatedColor);
-          }
-        };
-        animator.StartAnimation(lightNumber, _info.transitionTime, animUpdate);
+        sprintf(buff, "Setting position to %d from lenght %d", _position, lenght);
+        debug(buff);
+        
+        EEPROM.write(EEPROM_POSITION_ADDR, _position);
+        EEPROM.commit();
       }
-      else {
-        AnimUpdateCallback animUpdate = [ = ](const AnimationParam & param)
-        {
-          // progress will start at 0.0 and end at 1.0
-          HslColor updatedColor = HslColor::LinearBlend<NeoHueBlendShortestDistance>(originalColor, black, param.progress);
-          
-          for(int i=lightNumber * NUM_PIXELS_PER_LIGHT; i < (lightNumber * NUM_PIXELS_PER_LIGHT) + NUM_PIXELS_PER_LIGHT; i++) {
-            strip.SetPixelColor(i, updatedColor);
-          }
-        };
-        animator.StartAnimation(lightNumber, _info.transitionTime, animUpdate);
+
+      now = millis();
+      int mqtt_send_delay = isOperating() ? 300 : MQTT_SEND_STATUS_MS;
+      if (now - _lastMqttSendMs > mqtt_send_delay) {
+        sprintf(buff, "%d", _position);
+        mqttClient.publish(mqtt_state_topic, buff);
+        _lastMqttSendMs = now;
       }
     }
 
-    HueLightInfo getInfo(int lightNumber) { return _info; }
+    void stop() {
+      setRelay(0);
+       //setRelay(_relayState & ~(_relayState & POWER_RELAY)); // switch back the relay to stop everything
+       _operationStartMs = 0;
+    }
+
+    String getFriendlyName(int lightNumber) const {
+      return friendly_name;
+    }
 };
 
 void setup() {
+  pinMode(LED, OUTPUT);
+  Serial.begin(19230);
+  EEPROM.begin(512);
 
-  // this resets all the neopixels to an off state
-  strip.Begin();
-  strip.Show();
-
-  // Show that the NeoPixels are alive
-  delay(120); // Apparently needed to make the first few pixels animate correctly
-  Serial.begin(115200);
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  infoLight(white);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    infoLight(red);
-    delay(500);
-    Serial.print(".");
-  }
-
-  // Port defaults to 8266
-  // ArduinoOTA.setPort(8266);
-
-  // Hostname defaults to esp8266-[ChipID]
-  // ArduinoOTA.setHostname("myesp8266");
-
-  // No authentication by default
-  // ArduinoOTA.setPassword((const char *)"123");
+  coverHandler = new CoverHandler();  
+  ensure_wifi_connection();
 
   ArduinoOTA.onStart([]() {
-    Serial.println("Start");
+    debug("OTA begin update");
   });
   ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
+    debug("OTA end update");
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    sprintf(buff, "OTA update progress:: %u%%\r", (progress / (total / 100)));    
+    debug(buff);
   });
   ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    char * reason = "Unknown";
+    if (error == OTA_AUTH_ERROR) reason = "Auth Failed";
+    else if (error == OTA_BEGIN_ERROR) reason = "Begin Failed";
+    else if (error == OTA_CONNECT_ERROR) reason = "Connect Failed";
+    else if (error == OTA_RECEIVE_ERROR) reason = "Receive Failed";
+    else if (error == OTA_END_ERROR) reason = "End Failed";
+
+    sprintf(buff, "OTA Error[%u]: (%s)", error, reason);    
+    debug(buff);
   });
+  
+  ArduinoOTA.setPort(OTA_PORT);
+  ArduinoOTA.setHostname("sonoff_bedroom_cover");
+  ArduinoOTA.setPassword(OTA_PASS);
   ArduinoOTA.begin();
 
   // Sync our clock
   NTP.begin("pool.ntp.org", 0, true);
-
-  // Show that we are connected
-  infoLight(green);
-  pinMode(LED_BUILTIN, OUTPUT);     // Initialize the LED_BUILTIN pin as an output
-  digitalWrite(LED_BUILTIN, HIGH);  // Turn the LED off by making the voltage HIGH
-
+  LightService.setLightsAvailable(1);
+  LightService.setLightHandler(0, coverHandler);
   LightService.begin();
 
-  // setup pixels as lights
-  for (int i = 0; i < MAX_LIGHT_HANDLERS && i < pixelCount; i++) {
-    LightService.setLightHandler(i, new PixelHandler());
-  }
+  mqttClient.setServer(mqtt_server, mqtt_port);
+  mqttClient.setCallback(callback);
 
-  // We'll get the time eventually ...
-  if (timeStatus() == timeSet) {
-    Serial.println(NTP.getTimeDateString(now()));
+  if (!EEPROM.read(EEPROM_POSITION_ADDR + 1)) {
+    debug("Reseting the position because it is not calibrated");
+    coverHandler->setPosition(0);
+    EEPROM.write(EEPROM_POSITION_ADDR + 1, 1);
+    EEPROM.commit();
   }
+}
+
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  if (length > sizeof(buff))
+    return;
+
+  memcpy(buff, payload, length);
+  buff[length] = NULL;
+  String message(buff);
+  String mytopic(topic);
+
+  sprintf(buff, "Received topic: '%s' (%d): %s", topic, length, message.c_str());
+  debug(buff);
+  
+  if (mytopic == mqtt_command_topic) {
+    if (message.equals("OPEN")) {
+      coverHandler->setPosition(COVER_OPEN);
+      return;
+    }
+
+    if (message.equals("CLOSE")) {
+      coverHandler->setPosition(COVER_CLOSE);
+      return;
+    }
+
+    if (message.equals("STOP")) {
+      coverHandler->stop();
+      return;
+    }
+
+    if (message.equals("CALIBRATE")) {
+      coverHandler->calibrate();
+      return;
+    }
+
+    if (message.equals("DEBUG")) {
+      debugging = 1;
+      debug("Debugging enabled!");
+      return;
+    }
+
+    if (message.length() > 0 && message.length() <= 3) {
+      int position = atoi(message.c_str());
+      if (position >= COVER_OPEN && position <= COVER_CLOSE) {
+        coverHandler->setPosition(position);
+        return;
+      } else {
+        sprintf(buff, "Received %s position, but ignoring because is out of range", position);
+        debug(buff);
+      }
+    }
+  }
+}
+
+void debug(const char* text) {
+  /*Serial.write(text);
+  Serial.write('\n');
+  Serial.flush();*/
+  if (debugging)
+    mqttClient.publish(mqtt_debug_topic, text);
+  
+  Serial.println(text);
 }
 
 void loop() {
   ArduinoOTA.handle();
-  
   LightService.update();
 
-  static unsigned long update_strip_time = 0;  //  keeps track of pixel refresh rate... limits updates to 33 Hz
-  if (millis() - update_strip_time > 30)
-  {
-    if ( animator.IsAnimating() ) animator.UpdateAnimations();
-    strip.Show();
-    update_strip_time = millis();
-  }
+  ensure_wifi_connection();
+  ensure_mqtt_connection();
+
+  activity.loop();
+  coverHandler->loop();
+  mqttClient.loop();
+  
+  if (!coverHandler->isOperating()) // if we do not do anything, we sleep
+    delay(250);
+  
+  //Serial.println("loop");
 }
 
-void infoLight(RgbColor color) {
-  // Flash the strip in the selected color. White = booted, green = WLAN connected, red = WLAN could not connect
-  for (int i = 0; i < pixelCount; i++)
-  {
-    strip.SetPixelColor(i, color);
-    strip.Show();
-    delay(10);
-    strip.SetPixelColor(i, black);
-    strip.Show();
+
+void ensure_wifi_connection() {
+  if (WiFi.status() == WL_CONNECTED)
+    return;
+     
+  WiFi.mode(WIFI_STA);
+  WiFi.config(IPAddress(172, 25, 1, 250), IPAddress(172, 25, 1, 1), IPAddress(255, 255, 255, 0));
+  WiFi.begin(wifi_ssid, wifi_password);
+
+  activity.on();
+  while (WiFi.status() != WL_CONNECTED) {
+    debug("Connecting to WIFI ...");
+    delay(500);
   }
+  activity.off();
+  debug("Connected to WIFI !");
 }
+
+void ensure_mqtt_connection() {
+  if (mqttClient.connected())
+    return;
+
+  activity.on();
+  while (!mqttClient.connected()) {
+    debug("Connecting to MQTT ...");
+    if (mqttClient.connect("bedroom_cover", mqtt_user, mqtt_password)) {
+      mqttClient.subscribe(mqtt_command_topic);
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+
+  activity.off();
+  debug("Connected to MQTT !");
+}
+
+
