@@ -6,6 +6,8 @@
 #include <PubSubClient.h>
 #include <EEPROM.h>
 
+#define DEBUG_SSDP
+
 #include <TimeLib.h>
 #include <NtpClientLib.h>
 #include "LightService.h"
@@ -22,9 +24,9 @@
 const int POWER_RELAY = 1;
 const int GOING_UP_RELAY = 2;
 const int LED = 13;
-const int COVER_OPEN = 0;
-const int COVER_CLOSE = 100;
-const int FULL_TIME_MS = 5000;
+const int COVER_OPEN = 100;
+const int COVER_CLOSE = 0;
+const int FULL_TIME_MS = 19500;
 const int MQTT_SEND_STATUS_MS = 3000;
 const char * friendly_name = "Bedroom window cover";
 const int EEPROM_POSITION_ADDR = 0;
@@ -34,11 +36,11 @@ class CoverHandler;
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
-LightServiceClass LightService(friendly_name);
+LightServiceClass LightService;
 CoverHandler *coverHandler = NULL;
 char buff[0x100];
 bool debugging = 0;
-TimedBlink activity(LED, 200, 200);
+TimedBlink activity(LED, 150, 200);
 
 void debug(const char * text);
 
@@ -62,19 +64,19 @@ class CoverHandler : public LightHandler {
     }
 
     int getPositionLenght(unsigned ms) {
-      return (COVER_CLOSE * ms) / FULL_TIME_MS;
+      return (COVER_OPEN * ms) / FULL_TIME_MS;
     }
 
   public:
     CoverHandler() : _startingPosition(), _relayState(), _operationStartMs(), _operatingMs(), _lastMqttSendMs() {
       _position = EEPROM.read(EEPROM_POSITION_ADDR);
-      if (_position < COVER_OPEN || _position > COVER_CLOSE) {
+      if (_position > COVER_OPEN || _position < COVER_CLOSE) {
         calibrate();
       }
     }
     
     void handleQuery(int lightNumber, HueLightInfo newInfo, aJsonObject* raw) {
-      int newPosition = (float)newInfo.brightness / (float)MAX_HUE * COVER_CLOSE;
+      int newPosition = (float)newInfo.brightness / (float)MAX_HUE * COVER_OPEN;
       if (_currentInfo.on && !newInfo.on) {
         newPosition = COVER_CLOSE;
       }
@@ -88,8 +90,8 @@ class CoverHandler : public LightHandler {
 
     HueLightInfo getInfo(int lightNumber) {
       HueLightInfo info = {};
-      info.brightness = (int) ((float)_position / COVER_CLOSE * (float)MAX_HUE);
-      info.on = _position > (COVER_CLOSE * 0.95);
+      info.brightness = (int) ((float)_position / COVER_OPEN * (float)MAX_HUE);
+      info.on = _position > (COVER_OPEN * 0.95);
 
       sprintf(buff, "getInfo(%d) was called: pos: %d, brightness: %d, on: %d", lightNumber, _position, info.brightness, info.on);
       debug(buff);
@@ -108,8 +110,8 @@ class CoverHandler : public LightHandler {
       _operatingMs = FULL_TIME_MS;
       activity.blink(_operatingMs);
 
-      _startingPosition = COVER_CLOSE;
-      _position = COVER_OPEN;
+      _startingPosition = COVER_OPEN;
+      _position = COVER_CLOSE;
       EEPROM.write(EEPROM_POSITION_ADDR, _position);
       EEPROM.write(EEPROM_POSITION_ADDR + 1, 0); // this is to reset that we are not calibrating anymore
       EEPROM.commit();
@@ -131,7 +133,7 @@ class CoverHandler : public LightHandler {
 
       _operationStartMs = millis();
       setRelay(relayState);
-      _operatingMs = (FULL_TIME_MS * abs(remaining)) / COVER_CLOSE;
+      _operatingMs = (FULL_TIME_MS * abs(remaining)) / COVER_OPEN;
       
       if (position == COVER_OPEN || position == COVER_CLOSE) {
         _operatingMs = _operatingMs * 1.15; // we take a margin as a 15% percent when we are in the 
@@ -162,7 +164,7 @@ class CoverHandler : public LightHandler {
         int lenght = getPositionLenght(spent);
         if (isGoingUp())
           lenght *= -1;
-        _position = min(max(_startingPosition + lenght, COVER_OPEN), COVER_CLOSE);
+        _position = min(max(_startingPosition + lenght, COVER_CLOSE), COVER_OPEN);
   
         if (spent >= _operatingMs) { // the operation needs to stop
           stop();
@@ -200,7 +202,7 @@ class CoverHandler : public LightHandler {
 void setup() {
   pinMode(LED, OUTPUT);
   Serial.begin(19230);
-  EEPROM.begin(512);
+  EEPROM.begin(64);
 
   coverHandler = new CoverHandler();  
   ensure_wifi_connection();
@@ -291,7 +293,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
     if (message.length() > 0 && message.length() <= 3) {
       int position = atoi(message.c_str());
-      if (position >= COVER_OPEN && position <= COVER_CLOSE) {
+      if (position <= COVER_OPEN && position >= COVER_CLOSE) {
         coverHandler->setPosition(position);
         return;
       } else {
@@ -323,8 +325,11 @@ void loop() {
   coverHandler->loop();
   mqttClient.loop();
   
-  if (!coverHandler->isOperating()) // if we do not do anything, we sleep
+  if (!coverHandler->isOperating()) { // if we do not do anything, we sleep
     delay(250);
+    //WiFi.forceSleepBegin(350 * 100);
+    //WiFi.forceSleepWake();
+  }
   
   //Serial.println("loop");
 }
@@ -335,13 +340,13 @@ void ensure_wifi_connection() {
     return;
      
   WiFi.mode(WIFI_STA);
-  WiFi.config(IPAddress(172, 25, 1, 250), IPAddress(172, 25, 1, 1), IPAddress(255, 255, 255, 0));
+  WiFi.config(IP_ADDRESS, IP_GATEWAY, IP_MASK);
   WiFi.begin(wifi_ssid, wifi_password);
 
-  activity.on();
   while (WiFi.status() != WL_CONNECTED) {
     debug("Connecting to WIFI ...");
-    delay(500);
+    activity.toggle();
+    delay(1000);
   }
   activity.off();
   debug("Connected to WIFI !");
@@ -351,7 +356,6 @@ void ensure_mqtt_connection() {
   if (mqttClient.connected())
     return;
 
-  activity.on();
   while (!mqttClient.connected()) {
     debug("Connecting to MQTT ...");
     if (mqttClient.connect("bedroom_cover", mqtt_user, mqtt_password)) {
@@ -359,9 +363,13 @@ void ensure_mqtt_connection() {
     } else {
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
+      Serial.println(" try again in 3 seconds");
+
+      // 15 * 200 = 3 seconds
+      for (int i=0 ; i<15 ; i++) {
+        activity.toggle();
+        delay(200);
+      }
     }
   }
 

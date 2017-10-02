@@ -49,7 +49,7 @@ class LightServiceClass {
     const char* _friendlyName;
 
     public:
-      LightServiceClass(const char * friendlyName);
+      LightServiceClass();
       LightHandler *getLightHandler(int numberOfTheLight);
       bool setLightsAvailable(int numLights);
       int getLightsAvailable();
@@ -57,7 +57,6 @@ class LightServiceClass {
       void begin();
       void begin(ESP8266WebServer *svr);
       void update();
-      const char* getFriendlyName() const;
     private:
       int currentNumLights = MAX_LIGHT_HANDLERS;
 };

@@ -190,7 +190,7 @@ protected:
 
 LightHandler *lightHandlers[MAX_LIGHT_HANDLERS] = {}; // interfaces exposed to the outside world
 
-LightServiceClass::LightServiceClass(const char * friendlyName) : _friendlyName(friendlyName) { }
+LightServiceClass::LightServiceClass() { }
 
 bool LightServiceClass::setLightHandler(int index, LightHandler *handler) {
   if (index >= currentNumLights || index < 0) return false;
@@ -198,9 +198,6 @@ bool LightServiceClass::setLightHandler(int index, LightHandler *handler) {
   return true;
 }
 
-const char* LightServiceClass::getFriendlyName() const {
-  return _friendlyName;
-}
 
 bool LightServiceClass::setLightsAvailable(int lights) {
   if (lights <= MAX_LIGHT_HANDLERS) {
@@ -245,7 +242,7 @@ static const char* _ssdp_response_template =
   "SERVER: Arduino/1.0 UPNP/1.1 %s/%s\r\n" // _modelName, _modelNumber
   "hue-bridgeid: %s\r\n"
   "ST: %s\r\n"  // _deviceType
-  "USN: uuid:%s\r\n" // _uuid
+  "USN: uuid:%s::%s\r\n" // _uuid::_deviceType
   "\r\n";
 
 static const char* _ssdp_notify_template =
@@ -281,7 +278,8 @@ int ssdpMsgFormatCallback(SSDPClass *ssdp, char *buffer, int buff_len,
       modelName, modelNumber,
       bridgeIDString.c_str(),
       deviceType,
-      uuid);
+      uuid,
+      deviceType);
   }
 }
 
@@ -356,7 +354,7 @@ void on(HandlerFunction fn, const String &wcUri, HTTPMethod method, char wildcar
 }
 
 void descriptionFn() {
-  String str = "<root><specVersion><major>1</major><minor>0</minor></specVersion><URLBase>http://" + ipString + ":80/</URLBase><device><deviceType>urn:schemas-upnp-org:device:Basic:1</deviceType><friendlyName>Philips hue (" + ipString + ")</friendlyName><manufacturer>Royal Philips Electronics</manufacturer><manufacturerURL>http://www.philips.com</manufacturerURL><modelDescription>Philips hue Personal Wireless Lighting</modelDescription><modelName>Philips hue bridge 2012</modelName><modelNumber>929000226503</modelNumber><modelURL>http://www.meethue.com</modelURL><serialNumber>"+macString+"</serialNumber><UDN>uuid:2f402f80-da50-11e1-9b23-"+macString+"</UDN><presentationURL>index.html</presentationURL><iconList><icon><mimetype>image/png</mimetype><height>48</height><width>48</width><depth>24</depth><url>hue_logo_0.png</url></icon><icon><mimetype>image/png</mimetype><height>120</height><width>120</width><depth>24</depth><url>hue_logo_3.png</url></icon></iconList></device></root>";
+  String str = "<?xml version=""1.0"" encoding=""UTF-8"" ?><root xmlns=""urn:schemas-upnp-org:device-1-0""><specVersion><major>1</major><minor>0</minor></specVersion><URLBase>http://" + ipString + ":80/</URLBase><device><deviceType>urn:schemas-upnp-org:device:Basic:1</deviceType><friendlyName>Philips hue (" + ipString + ")</friendlyName><manufacturer>Royal Philips Electronics</manufacturer><manufacturerURL>http://www.philips.com</manufacturerURL><modelDescription>Philips hue Personal Wireless Lighting</modelDescription><modelName>Philips hue bridge 2015</modelName><modelNumber>929000226503</modelNumber><modelURL>http://www.meethue.com</modelURL><serialNumber>"+macString+"</serialNumber><UDN>uuid:2f402f80-da50-11e1-9b23-"+macString+"</UDN><presentationURL>index.html</presentationURL><iconList><icon><mimetype>image/png</mimetype><height>48</height><width>48</width><depth>24</depth><url>hue_logo_0.png</url></icon><icon><mimetype>image/png</mimetype><height>120</height><width>120</width><depth>24</depth><url>hue_logo_3.png</url></icon></iconList></device></root>";
   HTTP->send(200, "text/plain", str);
   Serial.println(str);
 }
@@ -759,15 +757,15 @@ void LightServiceClass::begin(ESP8266WebServer *svr) {
   SSDP.begin();
   SSDP.setSchemaURL((char*)"description.xml");
   SSDP.setHTTPPort(80);
-  SSDP.setName((char*)"Philips hue clone");
+  SSDP.setName("Philips hue clone");
   SSDP.setSerialNumber(macString.c_str());
-  SSDP.setURL((char*)"index.html");
-  SSDP.setModelName((char*)"IpBridge");
-  SSDP.setModelNumber((char*)"0.1");
-  SSDP.setModelURL((char*)"http://www.meethue.com");
-  SSDP.setManufacturer((char*)"Royal Philips Electronics");
-  SSDP.setManufacturerURL((char*)"http://www.philips.com");
-  SSDP.setDeviceType((char*)"upnp:rootdevice");
+  SSDP.setURL("index.html");
+  SSDP.setModelName("IpBridge");
+  SSDP.setModelNumber("0.1");
+  SSDP.setModelURL("http://www.meethue.com");
+  SSDP.setManufacturer("Royal Philips Electronics");
+  SSDP.setManufacturerURL("http://www.philips.com");
+  SSDP.setDeviceType("urn:schemas-upnp-org:device:basic:1");
   SSDP.setMessageFormatCallback(ssdpMsgFormatCallback);
   Serial.println("SSDP Started");
 }

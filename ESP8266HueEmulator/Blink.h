@@ -15,9 +15,9 @@ class TimedBlink {
     digitalWrite(_pin, !_state);
     _lastUpdate = millis();
 
-    char buff[100] = {};
+    /*char buff[100] = {};
     sprintf(buff, "Setting led state: %d", _state);
-    debug(buff);
+    debug(buff);*/
   }
   
 public:
@@ -27,7 +27,7 @@ public:
   }
 
   ~TimedBlink() {
-    digitalWrite(_pin, true); // is off
+    off();
   }
 
   void loop() {
@@ -35,24 +35,19 @@ public:
       return;
     
   	unsigned long now = millis();
-    if (now - _beginOperationMs > _durationMs) {
+    if (now - _beginOperationMs >= _durationMs) {
       off();
       _durationMs = 0;
       return;
     }
   
-    if (_state) {
-      if (now - _lastUpdate >= _onDelay) {
-        toggle();
-        return;
-      }
-      
+    if (_state && now - _lastUpdate >= _onDelay) {
       off();
       return;
     }
 
     if (!_state && now - _lastUpdate >= _offDelay) {
-      toggle();
+      on();
       return;
     }
   }
