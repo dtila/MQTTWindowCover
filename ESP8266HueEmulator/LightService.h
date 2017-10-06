@@ -12,11 +12,16 @@ enum HueEffect {
   EFFECT_NONE, EFFECT_COLORLOOP
 };
 
+enum class HueBulbType {
+  EXTENDED_COLOR_LIGHT, DIMMABLE_LIGHT
+};
+
 
 struct HueLightInfo {
   bool on = false;
   int brightness = 0;
   HueColorType type = TYPE_HUE_SAT;
+  HueBulbType bulbType = HueBulbType::EXTENDED_COLOR_LIGHT;
   int hue = 0, saturation = 0;
   HueAlert alert = ALERT_NONE;
   HueEffect effect = EFFECT_NONE;

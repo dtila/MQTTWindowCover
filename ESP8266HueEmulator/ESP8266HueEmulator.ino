@@ -6,7 +6,6 @@
 #include <PubSubClient.h>
 #include <EEPROM.h>
 
-#define DEBUG_SSDP
 
 #include <TimeLib.h>
 #include <NtpClientLib.h>
@@ -34,6 +33,9 @@ const int MAX_HUE = 254;
 
 class CoverHandler;
 
+const int GO_UP_BUTTON = 1;
+const int GO_DOWN_BUTTON = 2;
+
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 LightServiceClass LightService;
@@ -51,6 +53,7 @@ class CoverHandler : public LightHandler {
     unsigned long _operationStartMs, _operatingMs, _lastMqttSendMs;
     
     void setRelay(int relayState) {
+      Serial.flush();
       Serial.write(0xA0);
       Serial.write(0x04);
       Serial.write(relayState);
@@ -81,6 +84,10 @@ class CoverHandler : public LightHandler {
         newPosition = COVER_CLOSE;
       }
 
+      if (newInfo.on && newInfo.brightness == 0) {
+        newPosition = COVER_OPEN;
+      }
+
       _currentInfo = newInfo;
       
       setPosition(newPosition);
@@ -90,8 +97,11 @@ class CoverHandler : public LightHandler {
 
     HueLightInfo getInfo(int lightNumber) {
       HueLightInfo info = {};
+      info.hue = -1;
+      info.saturation = -1;
+      info.bulbType = HueBulbType::DIMMABLE_LIGHT;
       info.brightness = (int) ((float)_position / COVER_OPEN * (float)MAX_HUE);
-      info.on = _position > (COVER_OPEN * 0.95);
+      info.on = _position > (COVER_OPEN * 0.05);
 
       sprintf(buff, "getInfo(%d) was called: pos: %d, brightness: %d, on: %d", lightNumber, _position, info.brightness, info.on);
       debug(buff);
@@ -149,7 +159,7 @@ class CoverHandler : public LightHandler {
     }
 
     bool isOperating() {
-      return _operationStartMs > 0;
+      return _relayState & POWER_RELAY; // _operationStartMs > 0;
     }
 
     bool isGoingUp() {
@@ -165,15 +175,15 @@ class CoverHandler : public LightHandler {
         if (isGoingUp())
           lenght *= -1;
         _position = min(max(_startingPosition + lenght, COVER_CLOSE), COVER_OPEN);
-  
+
+        sprintf(buff, "Setting position to %d from lenght %d", _position, lenght);
+        debug(buff);
+        
         if (spent >= _operatingMs) { // the operation needs to stop
           stop();
           EEPROM.write(EEPROM_POSITION_ADDR + 1, 1); // we say that we are calibrated
           debug("The cover operation has stopped");
         }
-
-        sprintf(buff, "Setting position to %d from lenght %d", _position, lenght);
-        debug(buff);
         
         EEPROM.write(EEPROM_POSITION_ADDR, _position);
         EEPROM.commit();
@@ -183,7 +193,11 @@ class CoverHandler : public LightHandler {
       int mqtt_send_delay = isOperating() ? 300 : MQTT_SEND_STATUS_MS;
       if (now - _lastMqttSendMs > mqtt_send_delay) {
         sprintf(buff, "%d", _position);
-        mqttClient.publish(mqtt_state_topic, buff);
+        mqttClient.publish(mqtt_position_topic, buff);
+
+        const char * state = _position >= 0 && _position <= 90 ? "open" : "close";
+        mqttClient.publish(mqtt_state_topic, state);
+                
         _lastMqttSendMs = now;
       }
     }
@@ -230,7 +244,7 @@ void setup() {
   });
   
   ArduinoOTA.setPort(OTA_PORT);
-  ArduinoOTA.setHostname("sonoff_bedroom_cover");
+  ArduinoOTA.setHostname("bedroom_cover.local");
   ArduinoOTA.setPassword(OTA_PASS);
   ArduinoOTA.begin();
 
