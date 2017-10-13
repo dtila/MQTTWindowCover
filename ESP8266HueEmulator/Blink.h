@@ -1,5 +1,4 @@
-
-void debug(const char * text);
+#include <Arduino.h>
 
 class TimedBlink {
   byte _pin;
@@ -10,72 +9,17 @@ class TimedBlink {
   unsigned long _lastUpdate;
   unsigned long _beginOperationMs, _durationMs;
 
-  void setState(bool state) {
-    _state = state;
-    digitalWrite(_pin, !_state);
-    _lastUpdate = millis();
-
-    /*char buff[100] = {};
-    sprintf(buff, "Setting led state: %d", _state);
-    debug(buff);*/
-  }
+  void setState(bool state);
   
 public:
-  TimedBlink(int pin, int onDelay, int offDelay)
-    : _pin(pin), _onDelay(onDelay), _offDelay(offDelay), _state(false), _durationMs(), _beginOperationMs()
-  {
-  }
+  TimedBlink(int pin, int onDelay, int offDelay);
+  ~TimedBlink();
 
-  ~TimedBlink() {
-    off();
-  }
-
-  void loop() {
-    if (!_durationMs)
-      return;
-    
-  	unsigned long now = millis();
-    if (now - _beginOperationMs >= _durationMs) {
-      off();
-      _durationMs = 0;
-      return;
-    }
+  void loop();
+  void on();
+  void off();
+  void toggle();
   
-    if (_state && now - _lastUpdate >= _onDelay) {
-      off();
-      return;
-    }
-
-    if (!_state && now - _lastUpdate >= _offDelay) {
-      on();
-      return;
-    }
-  }
-
-  void on() {
-    setState(true);
-  }
-
-  void off() {
-    setState(false);
-  }
-
-  void toggle() {
-    setState(!_state);
-  }
-
-  void blink(unsigned duration) {
-  	if (duration < 0)
-  		return;
-  	
-  	_beginOperationMs = millis();
-  	_durationMs = duration;
-    _lastUpdate = _beginOperationMs;
-  }
-
-  void blink(unsigned duration, int onDelay, int offDelay) {
-    _onDelay = onDelay;
-    _offDelay = offDelay;
-    blink(duration);
-  }
+  void blink(unsigned duration);
+  void blink(unsigned duration, int onDelay, int offDelay);
 };
