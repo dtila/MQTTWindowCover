@@ -12,6 +12,11 @@
 #  error aJson print buffer length PRINT_BUFFER_LEN must be increased to at least 4096
 #endif
 
+// Light service debugging
+#ifndef LightServiceDebug
+# define LightServiceDebug Serial
+#endif
+
 String macString;
 String bridgeIDString;
 String ipString;
@@ -383,13 +388,13 @@ void descriptionFn() {
   response.replace("{ip}", ipString);
 
   HTTP->send(200, "text/xml", response);
-  Serial.println(response);
+  LightServiceDebug.println(response);
 }
 
 void unimpFn(WcFnRequestHandler *handler, String requestUri, HTTPMethod method) {
   String str = "{}";
   HTTP->send(200, "text/plain", str);
-  Serial.println(str);
+  LightServiceDebug.println(str);
 }
 
 aJsonObject *wrapWithSuccess(aJsonObject *body) {
@@ -448,8 +453,8 @@ void configFn(WcFnRequestHandler *handler, String requestUri, HTTPMethod method)
       break;
     }
     case HTTP_PUT: {
-      Serial.print("configFn:");
-      Serial.println(HTTP->arg("plain"));
+      LightServiceDebug.print("configFn:");
+      LightServiceDebug.println(HTTP->arg("plain"));
       aJsonObject* body = aJson.parse(( char*) HTTP->arg("plain").c_str());
       sendJson(generateTargetPutResponse(body, "/config/"));
       aJson.deleteItem(body);
@@ -473,7 +478,7 @@ aJsonObject *getGroupJson();
 aJsonObject *getSceneJson();
 void addLightsJson(aJsonObject *config);
 void wholeConfigFn(WcFnRequestHandler *handler, String requestUri, HTTPMethod method) {
-  // Serial.println("Respond with complete json as in https://github.com/probonopd/ESP8266HueEmulator/wiki/Hue-API#get-all-information-about-the-bridge");
+  // LightServiceDebug.println("Respond with complete json as in https://github.com/probonopd/ESP8266HueEmulator/wiki/Hue-API#get-all-information-about-the-bridge");
   aJsonObject *root;
   root = aJson.createObject();
   // the default group 0 is never listed
@@ -549,8 +554,8 @@ void scenesIdFn(WcFnRequestHandler *handler, String requestUri, HTTPMethod metho
 void scenesIdLightFn(WcFnRequestHandler *handler, String requestUri, HTTPMethod method) {
   switch (method) {
     case HTTP_PUT: {
-      Serial.print("Body: ");
-      Serial.println(HTTP->arg("plain"));
+      LightServiceDebug.print("Body: ");
+      LightServiceDebug.println(HTTP->arg("plain"));
       // XXX Do something with this information...
       aJsonObject* body = aJson.parse(( char*) HTTP->arg("plain").c_str());
       sendJson(generateTargetPutResponse(body, "/scenes/" + handler->getWildCard(1) + "/lightstates/" + handler->getWildCard(2) + "/"));
@@ -707,8 +712,8 @@ void lightsIdStateFn(WcFnRequestHandler *whandler, String requestUri, HTTPMethod
   switch (method) {
     case HTTP_POST:
     case HTTP_PUT: {
-      Serial.print("lightsIdState:");
-      Serial.println(HTTP->arg("plain"));
+      LightServiceDebug.print("lightsIdState:");
+      LightServiceDebug.println(HTTP->arg("plain"));
       aJsonObject* parsedRoot = aJson.parse(( char*) HTTP->arg("plain").c_str());
       if (!parsedRoot) {
         // unparseable json
@@ -752,10 +757,10 @@ void LightServiceClass::begin(ESP8266WebServer *svr) {
   netmaskString = StringIPaddress(WiFi.subnetMask());
   gatewayString = StringIPaddress(WiFi.gatewayIP());
 
-  Serial.print("Starting HTTP at ");
-  Serial.print(WiFi.localIP());
-  Serial.print(":");
-  Serial.println(80);
+  LightServiceDebug.print("Starting HTTP at ");
+  LightServiceDebug.print(WiFi.localIP());
+  LightServiceDebug.print(":");
+  LightServiceDebug.println(80);
 
   HTTP->on("/description.xml", HTTP_GET, descriptionFn);
   on(configFn, "/api/*/config", HTTP_ANY);
@@ -783,7 +788,7 @@ void LightServiceClass::begin(ESP8266WebServer *svr) {
   String serial = macString;
   serial.toLowerCase();
   
-  Serial.println("Starting SSDP...");
+  LightServiceDebug.println("Starting SSDP...");
   SSDP.setSchemaURL("description.xml");
   SSDP.setHTTPPort(80);
   SSDP.setName("Philips hue clone");
@@ -799,7 +804,7 @@ void LightServiceClass::begin(ESP8266WebServer *svr) {
   SSDP.setDeviceType("urn:schemas-upnp-org:device:basic:1");
   //SSDP.setMessageFormatCallback(ssdpMsgFormatCallback);
   SSDP.begin();
-  Serial.println("SSDP Started");
+  LightServiceDebug.println("SSDP Started");
 }
 
 void LightServiceClass::update() {
@@ -811,8 +816,8 @@ void sendJson(aJsonObject *root) {
   // From https://github.com/pubnub/msp430f5529/blob/master/msp430f5529.ino
   char *msgStr = aJson.print(root);
   aJson.deleteItem(root);
-  Serial.println(millis());
-  Serial.println(msgStr);
+  LightServiceDebug.println(millis());
+  LightServiceDebug.println(msgStr);
   HTTP->send(200, "application/json", msgStr);
   free(msgStr);
 }
@@ -957,7 +962,7 @@ void sendSuccess(String value) {
 }
 
 void sendUpdated() {
-  Serial.println("Updated.");
+  LightServiceDebug.println("Updated.");
   HTTP->send(200, "text/plain", "Updated.");
 }
 
@@ -1154,8 +1159,8 @@ aJsonObject *validateGroupCreateBody(String body) {
 }
 
 void applyConfigToLightMask(unsigned int lights) {
-  Serial.print("applyConfigToLightMask:");
-  Serial.println(HTTP->arg("plain"));
+  LightServiceDebug.print("applyConfigToLightMask:");
+  LightServiceDebug.println(HTTP->arg("plain"));
   aJsonObject* parsedRoot = aJson.parse(( char*) HTTP->arg("plain").c_str());
   if (parsedRoot) {
     for (int i = 0; i < LightService.getLightsAvailable(); i++) {
@@ -1180,8 +1185,8 @@ void applyConfigToLightMask(unsigned int lights) {
 bool updateGroupSlot(int slot, String body) {
   aJsonObject *root;
   if (body != "") {
-    Serial.print("updateGroupSlot:");
-    Serial.println(body);
+    LightServiceDebug.print("updateGroupSlot:");
+    LightServiceDebug.println(body);
     root = validateGroupCreateBody(body);
   }
   if (!root && body != "") {
@@ -1259,8 +1264,8 @@ int findSceneIndex(String id) {
 bool updateSceneSlot(int slot, String id, String body) {
   aJsonObject *root;
   if (body != "") {
-    Serial.print("updateSceneSlot:");
-    Serial.println(body);
+    LightServiceDebug.print("updateSceneSlot:");
+    LightServiceDebug.println(body);
     root = validateGroupCreateBody(body);
   }
   if (!root && body != "") {
