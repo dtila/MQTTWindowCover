@@ -783,8 +783,6 @@ void LightServiceClass::begin(ESP8266WebServer *svr) {
   on(lightsIdFn, "/api/*/lights/*", HTTP_ANY);
   on(lightsIdStateFn, "/api/*/lights/*/state", HTTP_ANY);
 
-  HTTP->begin();
-
   String serial = macString;
   serial.toLowerCase();
   

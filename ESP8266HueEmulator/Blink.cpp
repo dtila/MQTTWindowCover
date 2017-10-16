@@ -67,3 +67,9 @@ void TimedBlink::blink(unsigned duration, int onDelay, int offDelay) {
   _offDelay = offDelay;
   blink(duration);
 }
+
+bool TimedBlink::durationExpired() const
+{
+  return millis() > _beginOperationMs + _durationMs;
+}
+
