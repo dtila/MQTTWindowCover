@@ -374,6 +374,29 @@ void on(HandlerFunction fn, const String &wcUri, HTTPMethod method, char wildcar
   HTTP->addHandler(new WcFnRequestHandler(fn, wcUri, method, wildcard));
 }
 
+void indexPageFn() {
+	String response = "<html><body>"
+	"<h2>Philips HUE ( {ip} )</h2>"
+	"<p>Available lights:</p>"
+	"<ul>{lights}</ul>"
+	"</body></html>";
+	
+	String lights = "";
+	
+	 for (int i = 0; i < LightService.getLightsAvailable(); i++) {
+	  if (!lightHandlers[i]) {
+		  continue;
+	  }
+	  	  
+	  lights += "<li>" + lightHandlers[i]->getFriendlyName(i) + "</li>";
+	}
+	
+	response.replace("{ip}", ipString);
+	response.replace("{lights}", lights);
+		
+	HTTP->send(200, "text/html", response);
+}
+
 void descriptionFn() {
   String response = _ssdp_xml_template;
 
@@ -759,6 +782,7 @@ void LightServiceClass::begin(ESP8266WebServer *svr) {
   Serial.print(":");
   Serial.println(80);
 
+  HTTP->on("/index.html", HTTP_GET, indexPageFn);
   HTTP->on("/description.xml", HTTP_GET, descriptionFn);
   on(configFn, "/api/*/config", HTTP_ANY);
   on(configFn, "/api/config", HTTP_GET);
