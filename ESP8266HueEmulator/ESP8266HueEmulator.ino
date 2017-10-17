@@ -15,6 +15,7 @@
 #include <TimeLib.h>
 #include <NtpClientLib.h>
 #include <aJSON.h> // Replace avm/pgmspace.h with pgmspace.h there and set #define PRINT_BUFFER_LEN 4096 ################# IMPORTANT
+#include <Bounce2.h>
 
 #include "Blink.h"
 #include "LightService.h"
@@ -45,6 +46,9 @@ CoverHandler *coverHandler = NULL;
 char buff[0x100];
 byte button_state = 0;
 TimedBlink activity(LED, 150, 200);
+
+Bounce upButton = Bounce();
+Bounce downButton = Bounce();
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
@@ -246,6 +250,14 @@ void setup() {
   Serial.begin(19230);
   EEPROM.begin(64);
 
+  pinMode(GO_UP_BUTTON, INPUT_PULLUP);
+  upButton.attach(GO_UP_BUTTON);
+  upButton.interval(20);
+
+  pinMode(GO_DOWN_BUTTON, INPUT_PULLUP);
+  downButton.attach(GO_DOWN_BUTTON);
+  downButton.interval(20);
+
   ArduinoOTA.setPort(OTA_PORT);
   ArduinoOTA.setHostname(host);
   ArduinoOTA.setPassword(admin_password);
@@ -332,7 +344,25 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 void loop() {
   // read the button state
+  upButton.update();
+  downButton.update();
 
+  if (upButton.read()) {
+    if (coverHandler->isClosing()) {
+      coverHandler->stop();
+    } else {
+      coverHandler->open();      
+    }
+  }
+
+  if (downButton.read()) {
+    if (coverHandler->isOpening()) {
+      coverHandler->stop();
+    } else {
+      coverHandler->open();      
+    }
+  }
+  
   ArduinoOTA.handle();
   LightService.update();
   RSerial.handle();
@@ -364,6 +394,7 @@ bool try_connect_wifi(bool &isConnected) {
 
   if (RSerial.isActive(RSerial.DEBUG))
     RSerial.print("Connecting to WIFI ...");
+    
   WiFi.mode(WIFI_STA);    
   WiFi.config(IP_ADDRESS, IP_GATEWAY, IP_MASK);
   WiFi.begin(wifi_ssid, wifi_password);
