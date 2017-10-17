@@ -1,17 +1,17 @@
 
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
+#include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
 
 #include <ESP8266mDNS.h>
-#include <DNSServer.h>            //Local DNS Server used for redirecting all requests to the configuration portal
+#include <DNSServer.h>
 #include <RemoteDebug.h>
 
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
 
-#include <PubSubClient.h>         //MQTT
+#include <PubSubClient.h>
 #include <TimeLib.h>
 #include <NtpClientLib.h>
 #include <aJSON.h> // Replace avm/pgmspace.h with pgmspace.h there and set #define PRINT_BUFFER_LEN 4096 ################# IMPORTANT
@@ -42,10 +42,9 @@ const int GO_DOWN_BUTTON = 2;
 
 RemoteDebug RSerial;
 LightServiceClass LightService;
-CoverHandler *coverHandler = NULL;
+CoverHandler *coverHandler = nullptr;
 char buff[0x100];
-byte button_state = 0;
-TimedBlink activity(LED, 150, 200);
+TimedBlink activity(LED, 100, 200);
 
 Bounce upButton = Bounce();
 Bounce downButton = Bounce();
@@ -127,7 +126,8 @@ class CoverHandler : public LightHandler {
     }
 
     void calibrate() {
-      RSerial.println("Calibrating the cover ...");
+      if (RSerial.isActive(RSerial.INFO))
+        RSerial.println("Calibrating the cover ...");
 
       setRelay(POWER_RELAY | GOING_UP_RELAY);
       _operationStartMs = millis();
@@ -144,8 +144,9 @@ class CoverHandler : public LightHandler {
     void setPosition(int position) {
       if (position == _position)
         return;
-    
-      RSerial.printf("Setting position: %d", position);
+
+      if (RSerial.isActive(RSerial.INFO))
+        RSerial.printf("Setting position: %d", position);
         
       int relayState = POWER_RELAY;
       int remaining = position - _position; // 10 - 50
@@ -222,7 +223,7 @@ class CoverHandler : public LightHandler {
       }
     }
 
-    void issue_stop() {
+    void stop_later() {
       _operationMs = 0;
     }
 
@@ -381,8 +382,6 @@ void loop() {
 
   if (!coverHandler->isOperating()) { // if we do not do anything, we sleep
     delay(250);
-    //WiFi.forceSleepBegin(350 * 100);
-    //WiFi.forceSleepWake();
   }
 }
 
