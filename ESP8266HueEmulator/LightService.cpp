@@ -188,8 +188,6 @@ protected:
     char _wildcard;
 };
 
-LightServiceClass LightService;
-
 LightHandler *lightHandlers[MAX_LIGHT_HANDLERS] = {}; // interfaces exposed to the outside world
 
 LightServiceClass::LightServiceClass() { }
