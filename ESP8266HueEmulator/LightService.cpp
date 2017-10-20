@@ -268,7 +268,7 @@ static const char* _ssdp_xml_template = "<?xml version=\"1.0\" ?>"
   "<URLBase>http://{ip}:80/</URLBase>"
   "<device>"
     "<deviceType>urn:schemas-upnp-org:device:Basic:1</deviceType>"
-    "<friendlyName>Philips hue ( {ip} )</friendlyName>"
+    "<friendlyName>Philips hue ({ip})</friendlyName>"
     "<manufacturer>Royal Philips Electronics</manufacturer>"
     "<manufacturerURL>http://www.philips.com</manufacturerURL>"
     "<modelDescription>Philips hue Personal Wireless Lighting</modelDescription>"
@@ -278,7 +278,22 @@ static const char* _ssdp_xml_template = "<?xml version=\"1.0\" ?>"
     "<serialNumber>{mac}</serialNumber>"
     "<UDN>uuid:2f402f80-da50-11e1-9b23-{mac}</UDN>"
     "<presentationURL>index.html</presentationURL>"
-    //"<iconList><icon><mimetype>image/png</mimetype><height>48</height><width>48</width><depth>24</depth><url>hue_logo_0.png</url></icon><icon><mimetype>image/png</mimetype><height>120</height><width>120</width><depth>24</depth><url>hue_logo_3.png</url></icon></iconList>"
+    "<iconList>"
+    "  <icon>"
+    "    <mimetype>image/png</mimetype>"
+    "    <height>48</height>"
+    "    <width>48</width>"
+    "    <depth>24</depth>"
+    "    <url>hue_logo_0.png</url>"
+    "  </icon>"
+    "  <icon>"
+    "    <mimetype>image/png</mimetype>"
+    "    <height>120</height>"
+    "    <width>120</width>"
+    "    <depth>24</depth>"
+    "    <url>hue_logo_3.png</url>"
+    "  </icon>"
+    "</iconList>"
   "</device>"
   "</root>";
 
@@ -375,6 +390,29 @@ class LightGroup {
 
 void on(HandlerFunction fn, const String &wcUri, HTTPMethod method, char wildcard = '*') {
   HTTP->addHandler(new WcFnRequestHandler(fn, wcUri, method, wildcard));
+}
+
+void indexPageFn() {
+	String response = "<html><body>"
+	"<h2>Philips HUE ( {ip} )</h2>"
+	"<p>Available lights:</p>"
+	"<ul>{lights}</ul>"
+	"</body></html>";
+	
+	String lights = "";
+	
+	 for (int i = 0; i < LightService.getLightsAvailable(); i++) {
+	  if (!lightHandlers[i]) {
+		  continue;
+	  }
+	  	  
+	  lights += "<li>" + lightHandlers[i]->getFriendlyName(i) + "</li>";
+	}
+	
+	response.replace("{ip}", ipString);
+	response.replace("{lights}", lights);
+		
+	HTTP->send(200, "text/html", response);
 }
 
 void descriptionFn() {
@@ -762,6 +800,7 @@ void LightServiceClass::begin(ESP8266WebServer *svr) {
   LightServiceDebug.print(":");
   LightServiceDebug.println(80);
 
+  HTTP->on("/index.html", HTTP_GET, indexPageFn);
   HTTP->on("/description.xml", HTTP_GET, descriptionFn);
   on(configFn, "/api/*/config", HTTP_ANY);
   on(configFn, "/api/config", HTTP_GET);
@@ -788,6 +827,7 @@ void LightServiceClass::begin(ESP8266WebServer *svr) {
   
   LightServiceDebug.println("Starting SSDP...");
   SSDP.setSchemaURL("description.xml");
+  
   SSDP.setHTTPPort(80);
   SSDP.setName("Philips hue clone");
   SSDP.setSerialNumber(serial.c_str());
@@ -840,9 +880,10 @@ rgbcolor getXYtoRGB(float x, float y, int brightness_raw) {
   float Z = (Y / y) * z;
 
   // sRGB D65 conversion
-  float r =  X * 1.656492f - Y * 0.354851f - Z * 0.255038f;
-  float g = -X * 0.707196f + Y * 1.655397f + Z * 0.036152f;
-  float b =  X * 0.051713f - Y * 0.121364f + Z * 1.011530f;
+  // See https://en.wikipedia.org/wiki/SRGB
+  float r =  X * 3.2406f - Y * 1.5372f - Z * 0.4986f;
+  float g = -X * 0.9689f + Y * 1.8758f + Z * 0.0415f;
+  float b =  X * 0.0557f - Y * 0.2040f + Z * 1.0570f;
 
   if (r > b && r > g && r > 1.0f) {
     // red is too big

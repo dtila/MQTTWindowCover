@@ -39,6 +39,7 @@ class CoverHandler;
 
 const int GO_UP_BUTTON = 1;
 const int GO_DOWN_BUTTON = 2;
+LightServiceClass LightService;
 
 RemoteDebug RSerial;
 LightServiceClass LightService;
