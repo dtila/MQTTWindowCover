@@ -42,7 +42,6 @@ const int GO_DOWN_BUTTON = 2;
 LightServiceClass LightService;
 
 RemoteDebug RSerial;
-LightServiceClass LightService;
 CoverHandler *coverHandler = nullptr;
 char buff[0x100];
 TimedBlink activity(LED, 100, 200);
@@ -53,6 +52,7 @@ Bounce downButton = Bounce();
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 ESP8266WebServer httpServer(80);
+bool wifiConnected = false;
 ESP8266HTTPUpdateServer httpUpdater;
 
 
@@ -252,18 +252,22 @@ void setup() {
   Serial.begin(19230);
   EEPROM.begin(64);
 
-  pinMode(GO_UP_BUTTON, INPUT_PULLUP);
+  /*pinMode(GO_UP_BUTTON, INPUT_PULLUP);
   upButton.attach(GO_UP_BUTTON);
   upButton.interval(20);
 
   pinMode(GO_DOWN_BUTTON, INPUT_PULLUP);
   downButton.attach(GO_DOWN_BUTTON);
-  downButton.interval(20);
+  downButton.interval(20);*/
 
   ArduinoOTA.setPort(OTA_PORT);
   ArduinoOTA.setHostname(host);
   ArduinoOTA.setPassword(admin_password);
   ArduinoOTA.begin();
+
+  RSerial.begin(host); 
+  RSerial.setSerialEnabled(true);
+  RSerial.printf("HTTPUpdateServer ready! Open http://%s.local/update in your browser and login with username '%s' and your password\n", host, admin_username);
 
   coverHandler = new CoverHandler();  
  
@@ -273,6 +277,8 @@ void setup() {
   LightService.setLightHandler(0, coverHandler);
   LightService.begin(&httpServer);
   httpUpdater.setup(&httpServer, "/update", admin_username, admin_password);
+  
+  httpServer.begin();
   
   // MQTT setup
   mqttClient.setServer(mqtt_server, mqtt_port);
@@ -285,9 +291,8 @@ void setup() {
 
   MDNS.addService("http", "tcp", 80);
    
-  RSerial.begin(host); 
-  RSerial.setSerialEnabled(false);
-  RSerial.printf("HTTPUpdateServer ready! Open http://%s.local/update in your browser and login with username '%s' and your password\n", host, admin_username);
+  if (RSerial.isActive(RSerial.DEBUG))
+      RSerial.println("Cover Handler Started !");
 
   if (!EEPROM.read(EEPROM_POSITION_ADDR + 1)) {
     if (RSerial.isActive(RSerial.INFO))
@@ -346,7 +351,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 void loop() {
   // read the button state
-  upButton.update();
+  /*upButton.update();
   downButton.update();
 
   if (upButton.read()) {
@@ -363,7 +368,7 @@ void loop() {
     } else {
       coverHandler->open();      
     }
-  }
+  }*/
   
   ArduinoOTA.handle();
   LightService.update();
@@ -371,9 +376,7 @@ void loop() {
 
   bool isConnected;
   if (try_connect_wifi(isConnected) && isConnected) {
-    // setup WIFI
-    httpServer.begin();
-
+    wifiConnected = true;
     try_connect_to_mqtt();
   }
 
@@ -387,23 +390,28 @@ void loop() {
 }
 
 bool try_connect_wifi(bool &isConnected) {
-  isConnected = WiFi.status() == WL_CONNECTED;
-  if (isConnected || !activity.durationExpired()) {
+  if (!activity.durationExpired()) {
     return false;
   }
 
-  if (RSerial.isActive(RSerial.DEBUG))
-    RSerial.print("Connecting to WIFI ...");
-    
-  WiFi.mode(WIFI_STA);    
-  WiFi.config(IP_ADDRESS, IP_GATEWAY, IP_MASK);
-  WiFi.begin(wifi_ssid, wifi_password);
+  if (WiFi.status() == WL_DISCONNECTED) {
+    wifiConnected = false;
+    if (RSerial.isActive(RSerial.DEBUG))
+      RSerial.print("Connecting to WIFI ...");
+
+    WiFi.mode(WIFI_STA);    
+    WiFi.config(IP_ADDRESS, IP_GATEWAY, IP_MASK);
+    WiFi.begin(wifi_ssid, wifi_password);
+  }
 
   isConnected = WiFi.status() == WL_CONNECTED;
   if (isConnected) {
-    if (RSerial.isActive(RSerial.DEBUG))
-      RSerial.println("connected !");
-    activity.off();
+    if (!wifiConnected) { // if it was not connected
+      if (RSerial.isActive(RSerial.DEBUG))
+        RSerial.println("connected !");
+      activity.off();
+    }
+    
     return true;
   }
 
