@@ -25,8 +25,7 @@ void TimedBlink::loop() {
   
   unsigned long now = millis();
   if (now - _beginOperationMs >= _durationMs) {
-    off();
-    _durationMs = 0;
+    stop();
     return;
   }
 
@@ -68,8 +67,13 @@ void TimedBlink::blink(unsigned duration, int onDelay, int offDelay) {
   blink(duration);
 }
 
-bool TimedBlink::durationExpired() const
-{
+void TimedBlink::stop() {
+  _beginOperationMs = 0;
+  off();
+}
+
+bool TimedBlink::durationExpired() const {
   return millis() > _beginOperationMs + _durationMs;
 }
+
 

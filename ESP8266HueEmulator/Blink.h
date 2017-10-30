@@ -22,5 +22,7 @@ public:
   
   void blink(unsigned duration);
   void blink(unsigned duration, int onDelay, int offDelay);
+  void stop();
   bool durationExpired() const;
 };
+

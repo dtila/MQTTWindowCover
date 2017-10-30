@@ -285,13 +285,13 @@ void setup() {
   mqttClient.setServer(mqtt_server, mqtt_port);
   mqttClient.setCallback(callback);
 
+  MDNS.addService("http", "tcp", 80);
+  
   //setup http firmware update page.
   if (!MDNS.begin(host)) {
     RSerial.println("Error setting up MDNS responder!");
   }
-
-  MDNS.addService("http", "tcp", 80);
-   
+    
   if (RSerial.isActive(RSerial.DEBUG))
       RSerial.println("Cover Handler Started !");
 
@@ -378,6 +378,8 @@ void loop() {
   bool isConnected;
   if (try_connect_wifi(isConnected) && isConnected) {
     wifiConnected = true;
+    MDNS.notifyAPChange();
+  
     try_connect_to_mqtt();
   }
 
@@ -408,16 +410,20 @@ bool try_connect_wifi(bool &isConnected) {
   isConnected = WiFi.status() == WL_CONNECTED;
   if (isConnected) {
     if (!wifiConnected) { // if it was not connected
-      if (RSerial.isActive(RSerial.DEBUG))
-        RSerial.println("connected !");
-      activity.off();
+      if (RSerial.isActive(RSerial.DEBUG)) {
+        RSerial.print("Connected to WiFi '");
+        RSerial.print(WiFi.SSID());
+        RSerial.println("' !");
+      }
+      
+      activity.stop();
     }
     
     return true;
   }
 
   activity.blink(10 * 1000);
-  RSerial.println(".");
+  RSerial.println("Connecting to WIFI ...");
   return true;
 }
 
@@ -435,7 +441,7 @@ bool try_connect_to_mqtt() {
     if (RSerial.isActive(RSerial.DEBUG))
       RSerial.println("done");
     
-    activity.off();
+    activity.stop();
   } else {
     if (RSerial.isActive(RSerial.DEBUG)) {
       RSerial.print("failed, rc=");
@@ -444,9 +450,6 @@ bool try_connect_to_mqtt() {
     }
   }
   
-  activity.blink(10 * 1000);
+  activity.blink(10 * 1000, 500, 500);
   return true;
 }
-
-
-
