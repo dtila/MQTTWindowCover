@@ -51,10 +51,9 @@ class LightHandler {
 
 class ESP8266WebServer;
 class LightServiceClass {
-    const char* _friendlyName;
-
     public:
       LightServiceClass();
+      LightServiceClass(const char* friendlyName);
       LightHandler *getLightHandler(int numberOfTheLight);
       bool setLightsAvailable(int numLights);
       int getLightsAvailable();

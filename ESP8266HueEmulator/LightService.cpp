@@ -17,6 +17,7 @@ String bridgeIDString;
 String ipString;
 String netmaskString;
 String gatewayString;
+const char * friendlyName;
 // The username of the client (currently we authorize all clients simulating a pressed button on the bridge)
 String client;
 
@@ -190,7 +191,13 @@ protected:
 
 LightHandler *lightHandlers[MAX_LIGHT_HANDLERS] = {}; // interfaces exposed to the outside world
 
-LightServiceClass::LightServiceClass() { }
+LightServiceClass::LightServiceClass() {
+  friendlyName = "hue emulator";
+}
+
+LightServiceClass::LightServiceClass(const char* friendlyName) { 
+  friendlyName = friendlyName;
+}
 
 bool LightServiceClass::setLightHandler(int index, LightHandler *handler) {
   if (index >= currentNumLights || index < 0) return false;
@@ -389,7 +396,7 @@ void on(HandlerFunction fn, const String &wcUri, HTTPMethod method, char wildcar
 
 void indexPageFn() {
 	String response = "<html><body>"
-	"<h2>Philips HUE ( {ip} )</h2>"
+	"<h2>Philips HUE - {name} ( {ip} )</h2>"
 	"<p>Available lights:</p>"
 	"<ul>{lights}</ul>"
 	"</body></html>";
@@ -406,6 +413,7 @@ void indexPageFn() {
 	
 	response.replace("{ip}", ipString);
 	response.replace("{lights}", lights);
+  response.replace("{name}", friendlyName);
 		
 	HTTP->send(200, "text/html", response);
 }
@@ -1097,9 +1105,7 @@ void addSingleLightJson(aJsonObject* light, int numberOfTheLight, LightHandler *
   aJson.addStringToObject(light, "swversion", "0.1"); // type of lamp (all "Extended colour light" for now)
   aJson.addStringToObject(light, "type", "Extended color light"); // type of lamp (all "Extended colour light" for now)
   aJson.addStringToObject(light, "uniqueid",  ((String) (numberOfTheLight + 1)).c_str());
-
 }
-
 
 void addLightJson(aJsonObject* root, int numberOfTheLight, LightHandler *lightHandler) {
   if (!lightHandler) 
@@ -1163,7 +1169,7 @@ static String format2Digits(int num) {
 
 void addConfigJson(aJsonObject *root)
 {
-  aJson.addStringToObject(root, "name", "hue emulator");
+  aJson.addStringToObject(root, "name", friendlyName);
   aJson.addStringToObject(root, "swversion", "81012917");
   aJson.addStringToObject(root, "bridgeid", bridgeIDString.c_str());
   aJson.addBooleanToObject(root, "portalservices", false);
