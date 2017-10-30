@@ -39,7 +39,7 @@ class CoverHandler;
 
 const int GO_UP_BUTTON = 1;
 const int GO_DOWN_BUTTON = 2;
-LightServiceClass LightService;
+LightServiceClass LightService(friendly_name);
 
 RemoteDebug RSerial;
 CoverHandler *coverHandler = nullptr;
@@ -267,7 +267,7 @@ void setup() {
 
   RSerial.begin(host); 
   RSerial.setSerialEnabled(true);
-  RSerial.printf("HTTPUpdateServer ready! Open http://%s.local/update in your browser and login with username '%s' and your password\n", host, admin_username);
+
 
   coverHandler = new CoverHandler();  
  
@@ -276,9 +276,10 @@ void setup() {
   LightService.setLightsAvailable(1);
   LightService.setLightHandler(0, coverHandler);
   LightService.begin(&httpServer);
-  httpUpdater.setup(&httpServer, "/update", admin_username, admin_password);
   
+  httpUpdater.setup(&httpServer, "/update", admin_username, admin_password);
   httpServer.begin();
+  RSerial.printf("HTTPUpdateServer ready! Open http://%s.local/update in your browser and login with username '%s' and your password\n", host, admin_username);
   
   // MQTT setup
   mqttClient.setServer(mqtt_server, mqtt_port);
