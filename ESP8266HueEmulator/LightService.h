@@ -64,6 +64,8 @@ class LightServiceClass {
       void update();
     private:
       int currentNumLights = MAX_LIGHT_HANDLERS;
+      void memorizeState();
+      bool hasState() const;
 };
 
 extern LightServiceClass LightService;

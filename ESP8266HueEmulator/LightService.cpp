@@ -781,6 +781,21 @@ void lightsNewFn(WcFnRequestHandler *handler, String requestUri, HTTPMethod meth
   sendJson(lights);
 }
 
+void LightServiceClass::memorizeState() {
+  ipString = StringIPaddress(WiFi.localIP());
+  netmaskString = StringIPaddress(WiFi.subnetMask());
+  gatewayString = StringIPaddress(WiFi.gatewayIP());
+
+  LightServiceDebug.print("Starting HTTP at ");
+  LightServiceDebug.print(WiFi.localIP());
+  LightServiceDebug.print(":");
+  LightServiceDebug.println(80);
+}
+
+bool LightServiceClass::hasState() const {
+  return ipString.length() > 0;
+}
+
 void LightServiceClass::begin() {
   begin(new ESP8266WebServer(80));
 }
@@ -791,17 +806,15 @@ void LightServiceClass::begin(ESP8266WebServer *svr) {
   bridgeIDString = macString;
   bridgeIDString.replace(":", "");
   bridgeIDString = bridgeIDString.substring(0, 6) + "FFFE" + bridgeIDString.substring(6);
-  ipString = StringIPaddress(WiFi.localIP());
-  netmaskString = StringIPaddress(WiFi.subnetMask());
-  gatewayString = StringIPaddress(WiFi.gatewayIP());
 
-  LightServiceDebug.print("Starting HTTP at ");
-  LightServiceDebug.print(WiFi.localIP());
-  LightServiceDebug.print(":");
-  LightServiceDebug.println(80);
+  if (WiFi.status() == WL_CONNECTED) {
+    memorizeState();
+  }
 
   HTTP->on("/index.html", HTTP_GET, indexPageFn);
   HTTP->on("/description.xml", HTTP_GET, descriptionFn);
+  HTTP->on("/", HTTP_GET, indexPageFn);
+  
   on(configFn, "/api/*/config", HTTP_ANY);
   on(configFn, "/api/config", HTTP_GET);
   on(wholeConfigFn, "/api/*", HTTP_GET);
@@ -846,6 +859,14 @@ void LightServiceClass::begin(ESP8266WebServer *svr) {
 }
 
 void LightServiceClass::update() {
+  if (WiFi.status() == WL_CONNECTED && !hasState()) {
+    memorizeState();
+  }
+
+  if (WiFi.status() == WL_DISCONNECTED && hasState()) {
+    ipString = ""; // clear the state
+  }
+  
   HTTP->handleClient();
 }
 
