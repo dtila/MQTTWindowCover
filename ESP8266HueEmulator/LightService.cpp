@@ -200,8 +200,8 @@ LightServiceClass::LightServiceClass() {
   friendlyName = "hue emulator";
 }
 
-LightServiceClass::LightServiceClass(const char* friendlyName) { 
-  friendlyName = friendlyName;
+LightServiceClass::LightServiceClass(const char* friendlyNameArg) { 
+  friendlyName = friendlyNameArg;
 }
 
 bool LightServiceClass::setLightHandler(int index, LightHandler *handler) {
