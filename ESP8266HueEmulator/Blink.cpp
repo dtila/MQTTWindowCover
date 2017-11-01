@@ -68,7 +68,7 @@ void TimedBlink::blink(unsigned duration, int onDelay, int offDelay) {
 }
 
 void TimedBlink::stop() {
-  _beginOperationMs = 0;
+  _durationMs = 0;
   off();
 }
 

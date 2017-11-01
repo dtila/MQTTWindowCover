@@ -375,13 +375,19 @@ void loop() {
   LightService.update();
   RSerial.handle();
 
+  bool oldWifiConnected = wifiConnected;
+
   bool isConnected;
   if (try_connect_wifi(isConnected) && isConnected) {
-    wifiConnected = true;
-    MDNS.notifyAPChange();
-  
+    
+    if (RSerial.isActive(RSerial.DEBUG)) {
+      RSerial.println("WiFi network changed");
+    }
+    
+    MDNS.notifyAPChange();  
     try_connect_to_mqtt();
   }
+
 
   activity.loop();
   coverHandler->loop();
@@ -393,21 +399,9 @@ void loop() {
 }
 
 bool try_connect_wifi(bool &isConnected) {
-  if (!activity.durationExpired()) {
-    return false;
-  }
-
-  if (WiFi.status() == WL_DISCONNECTED) {
-    wifiConnected = false;
-    if (RSerial.isActive(RSerial.DEBUG))
-      RSerial.print("Connecting to WIFI ...");
-
-    WiFi.mode(WIFI_STA);    
-    WiFi.config(IP_ADDRESS, IP_GATEWAY, IP_MASK);
-    WiFi.begin(wifi_ssid, wifi_password);
-  }
-
+  
   isConnected = WiFi.status() == WL_CONNECTED;
+  
   if (isConnected) {
     if (!wifiConnected) { // if it was not connected
       if (RSerial.isActive(RSerial.DEBUG)) {
@@ -415,15 +409,31 @@ bool try_connect_wifi(bool &isConnected) {
         RSerial.print(WiFi.SSID());
         RSerial.println("' !");
       }
-      
+
+      wifiConnected = true;
       activity.stop();
+      return true;
     }
     
+    return false; // we are connected and we were already connected
+  }
+
+  if (!activity.durationExpired()) {
+    return false;
+  }
+  
+  if (WiFi.status() == WL_DISCONNECTED) {
+    wifiConnected = false;
+    if (RSerial.isActive(RSerial.DEBUG))
+      RSerial.println("Connecting to WIFI ...");
+
+    WiFi.mode(WIFI_STA);    
+    WiFi.config(IP_ADDRESS, IP_GATEWAY, IP_MASK);
+    WiFi.begin(wifi_ssid, wifi_password);
+    activity.blink(10 * 1000, 800, 800);
     return true;
   }
 
-  activity.blink(10 * 1000);
-  RSerial.println("Connecting to WIFI ...");
   return true;
 }
 
@@ -432,14 +442,16 @@ bool try_connect_to_mqtt() {
     return false;
   }
 
-  if (RSerial.isActive(RSerial.DEBUG))
+  if (RSerial.isActive(RSerial.DEBUG)) {
     RSerial.print("Connecting to MQTT ...");
-    
+  }
+  
   if (mqttClient.connect(host, mqtt_user, mqtt_password)) {
     mqttClient.subscribe(mqtt_command_topic);
     
-    if (RSerial.isActive(RSerial.DEBUG))
-      RSerial.println("done");
+    if (RSerial.isActive(RSerial.DEBUG)) {
+      RSerial.println(" done");
+    }
     
     activity.stop();
   } else {
@@ -449,7 +461,8 @@ bool try_connect_to_mqtt() {
       RSerial.println(" try again in 10 seconds");
     }
   }
-  
-  activity.blink(10 * 1000, 500, 500);
+
+  if (!activity.durationExpired()) // we check if this is not stopped
+    activity.blink(10 * 1000, 200, 200);
   return true;
 }
