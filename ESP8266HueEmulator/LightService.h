@@ -68,3 +68,8 @@ class LightServiceClass {
 };
 
 extern LightServiceClass LightService;
+
+// Light service debugging
+#ifndef LightServiceDebug
+# define LightServiceDebug Serial
+#endif

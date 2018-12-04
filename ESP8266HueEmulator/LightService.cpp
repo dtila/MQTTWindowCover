@@ -12,11 +12,6 @@
 #  error aJson print buffer length PRINT_BUFFER_LEN must be increased to at least 4096
 #endif
 
-// Light service debugging
-#ifndef LightServiceDebug
-# define LightServiceDebug Serial
-#endif
-
 String macString;
 String bridgeIDString;
 String ipString;
@@ -404,6 +399,7 @@ void indexPageFn() {
 	"<h2>Philips HUE - {name} ( {ip} )</h2>"
 	"<p>Available lights:</p>"
 	"<ul>{lights}</ul>"
+  "<div>Compiled at {date} @ {time}</div>"
 	"</body></html>";
 	
 	String lights = "";
@@ -419,6 +415,8 @@ void indexPageFn() {
 	response.replace("{ip}", ipString);
 	response.replace("{lights}", lights);
   response.replace("{name}", friendlyName);
+  response.replace("{date}", __DATE__);
+  response.replace("{time}", __TIME__);
 		
 	HTTP->send(200, "text/html", response);
 }
@@ -876,6 +874,7 @@ void LightServiceClass::update() {
   }
   
   HTTP->handleClient();
+  SSDP.update();
 }
 
 void sendJson(aJsonObject *root) {

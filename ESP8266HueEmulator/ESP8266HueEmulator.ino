@@ -1,3 +1,4 @@
+#define LightServiceDebug RSerial
 
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
@@ -17,10 +18,9 @@
 #include <aJSON.h> // Replace avm/pgmspace.h with pgmspace.h there and set #define PRINT_BUFFER_LEN 4096 ################# IMPORTANT
 #include <Bounce2.h>
 
+#include "secrets.h"
 #include "Blink.h"
 #include "LightService.h"
-#include "SSDP.h"
-#include "secrets.h"
 
 // Able to respond to: ON = 0 position, OFF = position 100
 
@@ -32,10 +32,10 @@ const int COVER_CLOSE = 0;
 const int FULL_TIME_MS = 19500;
 const int MQTT_SEND_STATUS_MS = 3000;
 const char * friendly_name = "Bedroom window cover";
-const int EEPROM_POSITION_ADDR = 0;
 const int MAX_HUE = 254;
 
 class CoverHandler;
+class Settings;
 
 const int GO_UP_BUTTON = 1;
 const int GO_DOWN_BUTTON = 2;
@@ -43,11 +43,12 @@ LightServiceClass LightService(friendly_name);
 
 RemoteDebug RSerial;
 CoverHandler *coverHandler = nullptr;
+Settings *_settings = nullptr;
 char buff[0x100];
 TimedBlink activity(LED, 100, 200);
 
-Bounce upButton = Bounce();
-Bounce downButton = Bounce();
+//Bounce upButton = Bounce();
+//Bounce downButton = Bounce();
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
@@ -56,24 +57,82 @@ bool wifiConnected = false;
 ESP8266HTTPUpdateServer httpUpdater;
 
 
+struct Settings {
+  bool IsCalibrated;
+  byte Position;
+  
+  const int Size = sizeof(Settings) + 2;
+  
+  Settings() : _offset() {
+    EEPROM.begin(sizeof(Settings) + 2);
+     
+    Position = EEPROM.read(_offset);
+    IsCalibrated = EEPROM.read(_offset + 1);
+  }
+  
+  void save() {
+    if (!IsCalibrated)
+      return;
+      
+    if (RSerial.isActive(RSerial.DEBUG)) {
+      RSerial.println("Saving EEPROM");
+    }
+
+    EEPROM.write(_offset, Position);
+    EEPROM.write(_offset + 1, IsCalibrated);
+    
+    long start = millis();
+    while (millis() - start < 1000) {
+      if (EEPROM.commit()) {
+              
+        if (RSerial.isActive(RSerial.INFO)) {
+          RSerial.println("EEPROM saved");
+        }
+    
+        return;
+      }
+    }
+
+    if (RSerial.isActive(RSerial.ERROR)) {
+      RSerial.println("EEPROM was not saved because timeout occured");
+    }
+  }
+
+  private:
+  short _offset;
+  int generateOffset() {
+    return millis() % 512;
+  }
+};
+
 class CoverHandler : public LightHandler {
-    int _startingPosition, _position, _relayState;
+    int _startingPosition, _relayState;
     HueLightInfo _currentInfo;
     unsigned long _operationStartMs, _operationMs, _lastMqttSendMs;
-    
-    void setRelay(int relayState) {
+
+    void _setRelay(int relayState) {
       Serial.flush();
       Serial.write(0xA0);
       Serial.write(0x04);
       Serial.write(relayState);
       Serial.write(0xA1);
-      Serial.write('\n');
       Serial.flush();
 
       _relayState = relayState;
-      
-      if (RSerial.isActive(RSerial.DEBUG))
+    }
+    
+    void setRelay(int relayState) {
+      _setRelay(0);
+
+      if (relayState & POWER_RELAY) {
+        delay(20);
+        _setRelay(relayState & GOING_UP_RELAY ? 1 : 2);
+      }
+
+      if (RSerial.isActive(RSerial.DEBUG)) {
         RSerial.printf("Setting relay: %d", relayState);
+        RSerial.println();
+      }
     }
 
     int getPositionLenght(unsigned ms) {
@@ -82,8 +141,7 @@ class CoverHandler : public LightHandler {
 
   public:
     CoverHandler() : _startingPosition(), _relayState(), _operationStartMs(), _operationMs(), _lastMqttSendMs() {
-      _position = EEPROM.read(EEPROM_POSITION_ADDR);
-      if (_position > COVER_OPEN || _position < COVER_CLOSE) {
+      if (!_settings->IsCalibrated || _settings->Position > COVER_OPEN || _settings->Position < COVER_CLOSE) {
         calibrate();
       }
     }
@@ -94,15 +152,17 @@ class CoverHandler : public LightHandler {
         newPosition = COVER_CLOSE;
       }
 
-      if (newInfo.on && newInfo.brightness == 0) {
+      if (newInfo.on && newInfo.brightness == COVER_CLOSE) {
         newPosition = COVER_OPEN;
       }
 
       _currentInfo = newInfo;
       
       setPosition(newPosition);
-      if (RSerial.isActive(RSerial.DEBUG))
+      if (RSerial.isActive(RSerial.DEBUG)) {
         RSerial.printf("Received: bri: %d, hue: %d, on: %d, pos: %d", newInfo.brightness, newInfo.hue, newInfo.on, newPosition);
+        RSerial.println();
+      }
     }
 
     HueLightInfo getInfo(int lightNumber) {
@@ -110,16 +170,14 @@ class CoverHandler : public LightHandler {
       info.hue = -1;
       info.saturation = -1;
       info.bulbType = HueBulbType::DIMMABLE_LIGHT;
-      info.brightness = (int) ((float)_position / COVER_OPEN * (float)MAX_HUE);
-      info.on = _position > (COVER_OPEN * 0.05);
+      info.brightness = (int) ((float)_settings->Position / COVER_OPEN * (float)MAX_HUE);
+      info.on = _settings->Position > (COVER_OPEN * 0.05);
 
-      if (RSerial.isActive(RSerial.DEBUG))
-        RSerial.printf("getInfo(%d) was called: pos: %d, brightness: %d, on: %d", lightNumber, _position, info.brightness, info.on);
+      if (RSerial.isActive(RSerial.DEBUG)) {
+        RSerial.printf("getInfo(%d) was called: pos: %d, brightness: %d, on: %d", lightNumber, _settings->Position, info.brightness, info.on);
+        RSerial.println();
+      }
       return info; 
-    }
-
-    byte getPosition() const {
-      return _position;
     }
 
     unsigned long getOperationStartTime() {
@@ -127,30 +185,32 @@ class CoverHandler : public LightHandler {
     }
 
     void calibrate() {
-      if (RSerial.isActive(RSerial.INFO))
+      if (RSerial.isActive(RSerial.INFO)) {
         RSerial.println("Calibrating the cover ...");
-
+      }
+      
       setRelay(POWER_RELAY | GOING_UP_RELAY);
       _operationStartMs = millis();
       _operationMs = FULL_TIME_MS;
-      activity.blink(_operationMs);
+      activity.blink(_operationMs, 100, 100);
 
-      _startingPosition = COVER_OPEN;
-      _position = COVER_CLOSE;
-      EEPROM.write(EEPROM_POSITION_ADDR, _position);
-      EEPROM.write(EEPROM_POSITION_ADDR + 1, 0); // this is to reset that we are not calibrating anymore
-      EEPROM.commit();
+      _startingPosition = COVER_CLOSE;
+      _settings->Position = COVER_OPEN;
+      _settings->IsCalibrated = false;
+      _settings->save();
     }
 
     void setPosition(int position) {
-      if (position == _position)
+      if (position == _settings->Position)
         return;
 
-      if (RSerial.isActive(RSerial.INFO))
+      if (RSerial.isActive(RSerial.INFO)) {
         RSerial.printf("Setting position: %d", position);
+        RSerial.println();
+      }
         
       int relayState = POWER_RELAY;
-      int remaining = position - _position; // 10 - 50
+      int remaining = position - _settings->Position; // 10 - 50
       
       if (remaining < 0) {
         relayState = relayState | GOING_UP_RELAY;
@@ -163,27 +223,33 @@ class CoverHandler : public LightHandler {
       if (position == COVER_OPEN || position == COVER_CLOSE) {
         _operationMs = _operationMs * 1.15; // we take a margin as a 15% percent when we are in the 
         
-        if (RSerial.isActive(RSerial.INFO))
+        if (RSerial.isActive(RSerial.INFO)) {
           RSerial.printf("Auto-Calibration to %d with duration %d ms because the requested position is in margin", position, _operationMs);
+          RSerial.println();
+        }
       }
       
-      activity.blink(_operationMs);
+      activity.blink(_operationMs, 300, 200);
 
-      _startingPosition = _position;
-      EEPROM.write(EEPROM_POSITION_ADDR + 1, 0); // this is to reset that we are not calibrating anymore
-      EEPROM.commit();
+      _startingPosition = _settings->Position;
+
+      _settings->IsCalibrated = false;
+      _settings->save();
     }
 
     bool isOperating() {
-      return _relayState & POWER_RELAY; // _operationStartMs > 0;
+      //return _relayState & POWER_RELAY; // _operationStartMs > 0;
+      return _relayState > 0;
     }
 
     bool isOpening() {
-      return isOperating() && _relayState & GOING_UP_RELAY;
+      //return isOperating() && (_relayState & GOING_UP_RELAY) != 0;
+      return _relayState & 1 > 0;
     }
 
     bool isClosing() {
-      return isOperating() && _relayState & GOING_UP_RELAY == 0;
+      //return isOperating() && (_relayState & GOING_UP_RELAY) == 0;
+      return _relayState & 2 > 0;
     }
 
     void loop() {
@@ -192,32 +258,35 @@ class CoverHandler : public LightHandler {
       if (isOperating()) {
         unsigned spent = now - _operationStartMs;
         int lenght = getPositionLenght(spent);
+        
         if (isOpening())
           lenght *= -1;
-        _position = min(max(_startingPosition + lenght, COVER_CLOSE), COVER_OPEN);
+        _settings->Position = min(max(_startingPosition + lenght, COVER_CLOSE), COVER_OPEN);
 
-        if (RSerial.isActive(RSerial.INFO))
-          RSerial.printf("Setting position to %d from lenght %d", _position, lenght);
+        if (RSerial.isActive(RSerial.INFO)) {
+          RSerial.printf("Starting position: %d and setting to %d from lenght %d (spent time: %d)", _startingPosition, _settings->Position, lenght, spent);
+          RSerial.println();
+        }
         
         if (spent >= _operationMs) { // the operation needs to stop
           stop();
-          EEPROM.write(EEPROM_POSITION_ADDR + 1, 1); // we say that we are calibrated
+          _settings->IsCalibrated = true;
           
-          if (RSerial.isActive(RSerial.INFO))
+          if (RSerial.isActive(RSerial.INFO)) {
             RSerial.println("The cover operation has stopped");
+          }
+
+          _settings->save();
         }
-        
-        EEPROM.write(EEPROM_POSITION_ADDR, _position);
-        EEPROM.commit();
       }
 
       now = millis();
       int mqtt_send_delay = isOperating() ? 300 : MQTT_SEND_STATUS_MS;
       if (now - _lastMqttSendMs > mqtt_send_delay) {
-        sprintf(buff, "%d", _position);
+        sprintf(buff, "%d", _settings->Position);
         mqttClient.publish(mqtt_position_topic, buff);
 
-        const char * state = _position >= 0 && _position <= 90 ? "open" : "close";
+        const char * state = _settings->Position >= 0 && _settings->Position <= 90 ? "open" : "close";
         mqttClient.publish(mqtt_state_topic, state);
                 
         _lastMqttSendMs = now;
@@ -250,7 +319,18 @@ class CoverHandler : public LightHandler {
 void setup() {
   pinMode(LED, OUTPUT);
   Serial.begin(19230);
-  EEPROM.begin(64);
+  RSerial.begin(host);
+  RSerial.setSerialEnabled(true);
+
+  if (RSerial.isActive(RSerial.INFO)) {
+      RSerial.println("Starting");
+  }
+  
+  _settings = new Settings();
+  
+  if (RSerial.isActive(RSerial.DEBUG)) {
+      RSerial.println("Attaching interruptions ...");
+  }
 
   /*pinMode(GO_UP_BUTTON, INPUT_PULLUP);
   upButton.attach(GO_UP_BUTTON);
@@ -260,48 +340,41 @@ void setup() {
   downButton.attach(GO_DOWN_BUTTON);
   downButton.interval(20);*/
 
+  if (RSerial.isActive(RSerial.DEBUG)) {
+      RSerial.println("Setting ArdionoOTA ...");
+  }
+  
   ArduinoOTA.setPort(OTA_PORT);
   ArduinoOTA.setHostname(host);
   ArduinoOTA.setPassword(admin_password);
   ArduinoOTA.begin();
-
-  RSerial.begin(host); 
-  RSerial.setSerialEnabled(true);
-
-
-  coverHandler = new CoverHandler();  
  
   // Sync our clock
   NTP.begin("pool.ntp.org", 0, true);
+
+  // MQTT setup
+  mqttClient.setServer(mqtt_server, mqtt_port);
+  mqttClient.setCallback(callback);
+  
+  coverHandler = new CoverHandler();  
   LightService.setLightsAvailable(1);
   LightService.setLightHandler(0, coverHandler);
   LightService.begin(&httpServer);
   
   httpUpdater.setup(&httpServer, "/update", admin_username, admin_password);
   httpServer.begin();
-  RSerial.printf("HTTPUpdateServer ready! Open http://%s.local/update in your browser and login with username '%s' and your password\n", host, admin_username);
-  
-  // MQTT setup
-  mqttClient.setServer(mqtt_server, mqtt_port);
-  mqttClient.setCallback(callback);
-
   MDNS.addService("http", "tcp", 80);
-  
+      
   //setup http firmware update page.
-  if (!MDNS.begin(host)) {
+  if (!MDNS.begin(host) && RSerial.isActive(RSerial.ERROR)) {
     RSerial.println("Error setting up MDNS responder!");
   }
-    
-  if (RSerial.isActive(RSerial.DEBUG))
-      RSerial.println("Cover Handler Started !");
 
-  if (!EEPROM.read(EEPROM_POSITION_ADDR + 1)) {
-    if (RSerial.isActive(RSerial.INFO))
-      RSerial.println("Reseting the position because it is not calibrated");
-    coverHandler->setPosition(0);
-    EEPROM.write(EEPROM_POSITION_ADDR + 1, 1);
-    EEPROM.commit();
+  if (RSerial.isActive(RSerial.INFO)) {
+    RSerial.println("Initialization completed");
   }
+  
+  RSerial.setSerialEnabled(false);
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -313,8 +386,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
   String message(buff);
   String mytopic(topic);
 
-  if (RSerial.isActive(RSerial.INFO))
+  if (RSerial.isActive(RSerial.INFO)) {
     RSerial.printf("Received topic: '%s' (%d): %s", topic, length, message.c_str());
+    RSerial.println();
+  }
   
   if (mytopic == mqtt_command_topic) {
     if (message.equals("OPEN")) {
@@ -380,14 +455,16 @@ void loop() {
   bool isConnected;
   if (try_connect_wifi(isConnected) && isConnected) {
     
-    if (RSerial.isActive(RSerial.DEBUG)) {
+    if (RSerial.isActive(RSerial.WARNING)) {
       RSerial.println("WiFi network changed");
     }
-    
-    MDNS.notifyAPChange();  
-    try_connect_to_mqtt();
+
+    MDNS.notifyAPChange();
   }
 
+  if (connect_to_mqtt()) {
+    mqttClient.publish(mqtt_state_topic, "online");
+  }
 
   activity.loop();
   coverHandler->loop();
@@ -427,7 +504,7 @@ bool try_connect_wifi(bool &isConnected) {
     if (RSerial.isActive(RSerial.DEBUG))
       RSerial.println("Connecting to WIFI ...");
 
-    WiFi.mode(WIFI_STA);    
+    WiFi.mode(WIFI_STA);
     WiFi.config(IP_ADDRESS, IP_GATEWAY, IP_MASK);
     WiFi.begin(wifi_ssid, wifi_password);
     activity.blink(10 * 1000, 800, 800);
@@ -437,7 +514,7 @@ bool try_connect_wifi(bool &isConnected) {
   return true;
 }
 
-bool try_connect_to_mqtt() {
+bool connect_to_mqtt() {
   if (mqttClient.connected() || !activity.durationExpired()) {
     return false;
   }
@@ -445,7 +522,8 @@ bool try_connect_to_mqtt() {
   if (RSerial.isActive(RSerial.DEBUG)) {
     RSerial.print("Connecting to MQTT ...");
   }
-  
+
+  bool connected = false;
   if (mqttClient.connect(host, mqtt_user, mqtt_password)) {
     mqttClient.subscribe(mqtt_command_topic);
     
@@ -454,6 +532,7 @@ bool try_connect_to_mqtt() {
     }
     
     activity.stop();
+    connected = true;
   } else {
     if (RSerial.isActive(RSerial.DEBUG)) {
       RSerial.print("failed, rc=");
@@ -464,5 +543,5 @@ bool try_connect_to_mqtt() {
 
   if (!activity.durationExpired()) // we check if this is not stopped
     activity.blink(10 * 1000, 200, 200);
-  return true;
+  return connected;
 }

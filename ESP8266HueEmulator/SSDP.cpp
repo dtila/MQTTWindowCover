@@ -119,20 +119,16 @@ static const char* _ssdp_schema_template =
   "\r\n";
 
 
-struct SSDPTimer {
-  ETSTimer timer;
-};
-
 SSDPClass::SSDPClass() :
 _server(0),
-_timer(new SSDPTimer),
 _port(80),
 _ttl(SSDP_MULTICAST_TTL),
 _respondToPort(0),
 _pending(false),
 _delay(0),
 _process_time(0),
-_notify_time(0)
+_notify_time(0),
+_last_updated(0)
 {
   _uuid[0] = '\0';
   _modelNumber[0] = '\0';
@@ -147,9 +143,6 @@ _notify_time(0)
   sprintf(_schemaURL, "ssdp/schema.xml");
 }
 
-SSDPClass::~SSDPClass(){
-  delete _timer;
-}
 
 bool SSDPClass::begin(){
   _pending = false;
@@ -191,8 +184,6 @@ bool SSDPClass::begin(){
   if (!_server->connect(multicast_addr, SSDP_PORT)) {
     return false;
   }
-
-  _startTimer();
 
   return true;
 }
@@ -436,7 +427,13 @@ void SSDPClass::_update(){
     while (_server->next())
       _server->flush();
   }
+}
 
+void SSDPClass::update() {
+  if (millis() - _last_updated > (SSDP_INTERVAL * 1000L)) {
+    _update();
+    _last_updated = millis();
+  }
 }
 
 void SSDPClass::setSchemaURL(const char *url){
@@ -489,18 +486,6 @@ void SSDPClass::setManufacturerURL(const char *url){
 
 void SSDPClass::setTTL(const uint8_t ttl){
   _ttl = ttl;
-}
-
-void SSDPClass::_onTimerStatic(SSDPClass* self) {
-  self->_update();
-}
-
-void SSDPClass::_startTimer() {
-  ETSTimer* tm = &(_timer->timer);
-  const int interval = 1000;
-  os_timer_disarm(tm);
-  os_timer_setfn(tm, reinterpret_cast<ETSTimerFunc*>(&SSDPClass::_onTimerStatic), reinterpret_cast<void*>(this));
-  os_timer_arm(tm, interval, 1 /* repeat */);
 }
 
 #if !defined(NO_GLOBAL_INSTANCES) && !defined(NO_GLOBAL_SSDP)

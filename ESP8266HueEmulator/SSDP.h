@@ -54,14 +54,11 @@ typedef enum {
 } ssdp_method_t;
 
 
-struct SSDPTimer;
-
 class SSDPClass{
   public:
     SSDPClass();
-    ~SSDPClass();
-
     bool begin();
+    void update();
     typedef std::function<int(SSDPClass *ssdp, char *buffer, int buff_len,
                                                bool isNotify, int interval, char *modelName,
                                                char *modelNumber, char *uuid, char *deviceType,
@@ -97,14 +94,11 @@ class SSDPClass{
   protected:
     void _send(ssdp_method_t method);
     void _update();
-    void _startTimer();
-    static void _onTimerStatic(SSDPClass* self);
     int _getNextToken(String *token, bool break_on_space, bool break_on_colon);
     void _bailRead();
     void _parseIncoming();
 
     UdpContext* _server;
-    SSDPTimer* _timer;
     uint16_t _port;
     uint8_t _ttl;
 
@@ -115,6 +109,7 @@ class SSDPClass{
     unsigned short _delay;
     unsigned long _process_time;
     unsigned long _notify_time;
+    unsigned long _last_updated;
 
     char _schemaURL[SSDP_SCHEMA_URL_SIZE];
     char _uuid[SSDP_UUID_SIZE];
