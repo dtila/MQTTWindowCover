@@ -1,8 +1,6 @@
 language: c
 sudo: false
 cache:
-  directories:
-    - ~/arduino_ide
 git:
   depth: false
   quiet: true
@@ -12,8 +10,8 @@ env:
 before_install:
   - source <(curl -SLs https://raw.githubusercontent.com/adafruit/travis-ci-arduino/master/install.sh)
 install:
-  - mkdir -p ~./arduino_ide/libraries/
-  - cd ~./arduino_ide/libraries/
+  - mkdir -p $HOME/arduino_ide/libraries/
+  - cd $HOME/arduino_ide/libraries/
   - git clone https://github.com/PaulStoffregen/Time.git
   - git clone https://github.com/gmag11/NtpClient.git
   - git clone https://github.com/thomasfredericks/Bounce2.git
