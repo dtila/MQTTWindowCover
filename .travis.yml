@@ -3,7 +3,6 @@ sudo: false
 cache:
   directories:
     - ~/arduino_ide
-    - ~/.arduino15/packages/
 git:
   depth: false
   quiet: true
@@ -13,13 +12,13 @@ env:
 before_install:
   - source <(curl -SLs https://raw.githubusercontent.com/adafruit/travis-ci-arduino/master/install.sh)
 install:
-  - mkdir -p $HOME/arduino_ide/libraries/
-  - cd $HOME/arduino_ide/libraries/
-  - git clone https://github.com/tilutza/aJson.git
+  - mkdir -p ~./arduino_ide/libraries/
+  - cd ~./arduino_ide/libraries/
   - git clone https://github.com/PaulStoffregen/Time.git
   - git clone https://github.com/gmag11/NtpClient.git
   - git clone https://github.com/thomasfredericks/Bounce2.git
   - git clone https://github.com/knolleary/pubsubclient.git
+  - git clone https://github.com/tilutza/aJson.git
   - git clone https://github.com/tilutza/RemoteDebug.git
   - cd -
 script:
