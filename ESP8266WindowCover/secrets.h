@@ -3,7 +3,7 @@
 
 
 const int OTA_PORT = 8266;
-const char * host = "bedroom_cover";
+const char * host = "window_cover"; // This is the name 
 const char * admin_username = "admin";
 const char * admin_password = "*****";
 
@@ -17,7 +17,7 @@ const char * admin_password = "*****";
 #define IP_GATEWAY IPAddress(172, 25, 1, 1)
 #define IP_MASK IPAddress(255, 255, 255, 0)
 
-const char* wifi_ssid = "KDS";
+const char* wifi_ssid = "wifi-name";
 const char* wifi_password = "*****";
 
 

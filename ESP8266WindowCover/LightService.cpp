@@ -4,8 +4,8 @@
 #include <TimeLib.h>
 #include <NtpClientLib.h>
 #include <WiFiUdp.h>
-#include "SSDP.h"
-#include <aJSON.h> // Replace avm/pgmspace.h with pgmspace.h there and set #define PRINT_BUFFER_LEN 4096 ################# IMPORTANT
+#include <ESP8266SSDP.h>
+#include <aJSON.h>
 #include <assert.h>
 
 #if PRINT_BUFFER_LEN < 4096
@@ -874,7 +874,6 @@ void LightServiceClass::update() {
   }
   
   HTTP->handleClient();
-  SSDP.update();
 }
 
 void sendJson(aJsonObject *root) {
