@@ -4,21 +4,21 @@ This Arduino schetch emulates a Philips Hue bridge running on ESP8266 and expose
 
 Please note that currently only the bare minimum functions are implemented to the Hue bridge emulator, but it is enough that most common apps are able to work with. 
 
-### Demo
+## Demo
 The window covers they are running for more than a year in my house and I was able to expose via [Home Assistant](https://github.com/home-assistant/home-assistant) to Google Home. See in action below:
 
 <a href="http://www.youtube.com/watch?feature=player_embedded&v=aQU2oiVyFe4
 " target="_blank"><img src="http://img.youtube.com/vi/aQU2oiVyFe4/0.jpg" 
-alt="Bedroom Covers" width="240" height="180" border="0" /></a>
+alt="Bedroom Covers" width="480" height="360" border="0" /></a>
 
-### Build Status
+## Build Status
 
  [![Build Status](https://travis-ci.org/dtila/MQTTWindowCover.svg)](https://travis-ci.org/dtila/MQTTWindowCover)
 
 
 To make this work, the sketch advertises its service with the so-called "Simple Service Discovery Protocol" (SSDP) that is also used as discovery protocol of Universal Plug and Play (UPnP).
 
-# Hardware
+## Hardware
 
 For now the only hardware that is supported (and tested) is:
 - electric cover to have a AC motor that can be connected directly to the 220V power network
@@ -29,7 +29,7 @@ You can have a look to the connection diagram here. During the tests if you have
 
 ![schematic](https://raw.githubusercontent.com/tilutza/MQTTWindowCover/master/Sonoff_Dual_Wiring_instruction.jpg)
 
-# Features
+## Features
 
 1. The ESP board is advertised in the network as a Philips Hue bridge for controlling the cover
 2. A simple HTTP page is served as a status
@@ -44,7 +44,11 @@ You can have a look to the connection diagram here. During the tests if you have
 __Remarks__
 The position of the cover is stored in the EEPROM memory. This means that if you are turning of the device, it keeps the previous position in memory.
 
-# Usage
+#### To do
+- Web Interface & expose settings
+- WPS pairing
+
+## Usage
 
 __WARNING: Sonoff is connected directly to the 220V power network. Disconnect the board before to flash the new firmware or when you connect the electric cover.__
 
@@ -111,7 +115,7 @@ git clone https://github.com/knolleary/pubsubclient.git
 git clone https://github.com/tilutza/RemoteDebug.git
 ```
 
-# Credits
+## Credits
 
 * Philips for providing open Hue APIs that are not restricted for use on Philips-branded hardware (as far as I can see by looking at their liberal [Terms and Conditions of Use](https://github.com/probonopd/ESP8266HueEmulator/wiki/Discovery#terms-and-conditions-of-use))
 * probonopd for providing the original Hue Emulator
